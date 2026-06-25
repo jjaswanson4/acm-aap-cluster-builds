@@ -1,0 +1,105 @@
+---
+
+- name: Mount and boot the discovery ISO
+  hosts:
+    - all
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      user: "{{ bmc.username | b64decode }}"
+      password: "{{ bmc.password | b64decode }}"
+      force_basic_auth: true
+      validate_certs: false
+  tasks:
+    - name: Fetch InfraEnv to get Discovery ISO URL
+      kubernetes.core.k8s_info:
+        api_version: agent-install.openshift.io/v1beta1
+        kind: InfraEnv
+        # Assuming the InfraEnv is named the same as the cluster
+        name: "{{ cluster_name }}"
+        namespace: "{{ cluster_name }}"
+      register: infraenv_data
+      delegate_to: localhost
+      run_once: true
+      until: 
+        - infraenv_data.resources | length > 0
+        - infraenv_data.resources[0].status.isoDownloadURL is defined
+      retries: 20
+      delay: 10
+
+    - name: Set Discovery ISO URL fact
+      ansible.builtin.set_fact:
+        discovery_iso_url: "{{ infraenv_data.resources[0].status.isoDownloadURL }}"
+
+    - name: Force Power Off
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Systems/{{ redfish_system }}/Actions/ComputerSystem.Reset"
+        method: POST
+        status_code: [200, 204]
+        body_format: json
+        body:
+          ResetType: "ForceOff"
+
+    - name: Wait for system to power off
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Systems/{{redfish_system }}"
+        method: GET
+      register: power_status
+      until: power_status.json.PowerState == "Off"
+      retries: 20
+      delay: 10
+
+    - name: Clear next boot if set
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Systems/{{ redfish_system }}"
+        method: PATCH
+        status_code: [200, 204]
+        body_format: json
+        body:
+          Boot:
+            BootSourceOverrideEnabled: "Disabled"
+
+    - name: Mount discovery ISO
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Managers/bmc/VirtualMedia/Slot_API/Actions/VirtualMedia.InsertMedia"
+        method: POST
+        status_code: [200, 204]
+        body_format: json
+        body:
+          Image: "{{ discovery_iso_url }}"
+          Inserted: true
+
+    - name: Wait for Virtual Media Daemon to mount ISO
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Managers/bmc/VirtualMedia/Slot_API"
+        method: GET
+      register: vmedia_status
+      until: vmedia_status.json.Inserted == true
+      retries: 10
+      delay: 5
+
+    - name: Force next boot to Virtual CD
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Systems/{{ redfish_system }}"
+        method: PATCH
+        status_code: [200, 204]
+        body_format: json
+        body:
+          Boot:
+            BootSourceOverrideTarget: "Hdd"
+            BootSourceOverrideEnabled: "Once"
+            #BootSourceOverrideMode: "UEFI"
+
+    - name: Wait for next boot to apply
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Force Power On
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Systems/{{ redfish_system }}/Actions/ComputerSystem.Reset"
+        method: POST
+        status_code: [200, 204]
+        body_format: json
+        body:
+          ResetType: "ForceOn"

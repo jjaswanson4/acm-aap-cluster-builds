@@ -1,0 +1,32 @@
+---
+- name: Configure BMC Certificates
+  hosts:
+    - all
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Get OpenShift ingress CA
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: default-ingress-cert
+        namespace: openshift-config-managed
+      register: _hub_ca_configmap
+      run_once: true
+ 
+    - name: Inject CA via Redfish POST
+      ansible.builtin.uri:
+        url: "https://{{ bmc.address }}/redfish/v1/Managers/bmc/Truststore/Certificates"
+        method: POST
+        user: "{{ bmc.username | b64decode }}"
+        password: "{{ bmc.password | b64decode }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 201, 204]
+        body_format: json
+        body:
+          CertificateString: "{{ certificate }}"
+          CertificateType: "PEM"
+      loop: "{{ _hub_ca_configmap.resources[0].data['ca-bundle.crt'] | regex_findall('(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----') }}"
+      loop_control:
+        loop_var: certificate

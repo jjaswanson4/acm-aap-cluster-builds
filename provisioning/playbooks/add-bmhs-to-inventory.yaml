@@ -1,0 +1,52 @@
+---
+- name: Get BareMetalHosts and add them to an inventory
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  module_defaults:
+    kubernetes.core.k8s_info:
+      namespace: "{{ cluster_name }}"
+  tasks:
+    - name: Get BareMetalHosts from OpenShift
+      kubernetes.core.k8s_info:
+        api_version: metal3.io/v1alpha1
+        kind: BareMetalHost
+        namespace: "{{ cluster_name }}"
+      register: _bare_metal_hosts
+
+    - name: Get associated BMC credentials
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ bare_metal_host.spec.bmc.credentialsName }}"
+      loop: "{{ _bare_metal_hosts.resources }}"
+      loop_control:
+        loop_var: bare_metal_host
+      register: _bmc_credentials
+    
+    - name: Ensure inventory exists
+      ansible.controller.inventory:
+        name: OpenShift BareMetalHosts
+        organization: Default
+
+    - name: Add Host to AAP Inventory
+      ansible.controller.host:
+        name: "{{ bare_metal_host.bare_metal_host.metadata.name }}"
+        inventory: OpenShift BareMetalHosts
+        state: present
+        variables:
+          bmc:
+            address: "{{ bare_metal_host.bare_metal_host.spec.bmc.address | urlsplit('hostname') }}"
+            username: "{{ bare_metal_host.resources[0].data.username }}"
+            password: "{{ bare_metal_host.resources[0].data.password }}"
+          redfish_system: "{{ bare_metal_host.bare_metal_host.spec.bmc.address | split('/') | last }}"
+      loop: "{{ _bmc_credentials.results }}"
+      loop_control:
+        loop_var: bare_metal_host
+
+    - name: Create Cluster Group in AAP
+      ansible.controller.group:
+        name: "{{ cluster_name }}"
+        inventory: OpenShift BareMetalHosts
+        state: present
+        hosts: "{{ _bare_metal_hosts | json_query('resources[*].metadata.name') | list }}"
