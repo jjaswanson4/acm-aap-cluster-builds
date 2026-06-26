@@ -22,7 +22,7 @@
         password: "{{ bmc.password | b64decode }}"
         force_basic_auth: true
         validate_certs: false
-        status_code: [200, 201, 204]
+        status_code: [200, 201, 204, 500]
         body_format: json
         body:
           CertificateString: "{{ certificate }}"

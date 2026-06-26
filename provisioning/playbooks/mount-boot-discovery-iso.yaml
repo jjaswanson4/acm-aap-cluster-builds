@@ -87,7 +87,7 @@
         body_format: json
         body:
           Boot:
-            BootSourceOverrideTarget: "Hdd"
+            BootSourceOverrideTarget: "Cd"
             BootSourceOverrideEnabled: "Once"
             #BootSourceOverrideMode: "UEFI"
 
