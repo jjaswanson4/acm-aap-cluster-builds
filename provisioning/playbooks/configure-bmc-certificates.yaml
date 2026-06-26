@@ -1,7 +1,7 @@
 ---
 - name: Configure BMC Certificates
   hosts:
-    - all
+    - "{{ cluster_name }}"
   gather_facts: false
   connection: local
   tasks:

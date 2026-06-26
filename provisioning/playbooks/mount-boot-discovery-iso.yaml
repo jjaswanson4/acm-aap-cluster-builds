@@ -2,7 +2,7 @@
 
 - name: Mount and boot the discovery ISO
   hosts:
-    - all
+    - "{{ cluster_name }}"
   gather_facts: false
   connection: local
   module_defaults:
