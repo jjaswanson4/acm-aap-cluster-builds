@@ -49,4 +49,4 @@
         name: "{{ cluster_name }}"
         inventory: OpenShift BareMetalHosts
         state: present
-        hosts: "{{ _bare_metal_hosts | json_query('resources[*].metadata.name') | list }}"
+        hosts: "{{ _bare_metal_hosts.resources | map(attribute='metadata.name') | list }}"
