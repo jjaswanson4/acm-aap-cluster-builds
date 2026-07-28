@@ -1,21 +1,18 @@
 {{- if and (include "cluster.hasBMC" .) (eq ($.Values.resetBMCs | default "false" | toString) "true") }}
 {{- $argocd := eq (.Values.deployMethod | default "helm" | toString) "argocd" }}
+{{- if not $argocd }}
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
   annotations:
-{{- if $argocd }}
-    "argocd.argoproj.io/hook": PreSync
-    "argocd.argoproj.io/sync-wave": "-10"
-{{- else }}
     "helm.sh/hook": pre-install
     "helm.sh/hook-weight": "-10"
-{{- end }}
 {{- if eq (.Values.namespaceResourcePolicy | default "keep") "keep" }}
     "helm.sh/resource-policy": keep
     "argocd.argoproj.io/sync-options": "Prune=false"
+{{- end }}
 {{- end }}
 ---
 apiVersion: v1
