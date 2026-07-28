@@ -1,0 +1,118 @@
+{{- if and (include "cluster.hasBMC" .) (eq ($.Values.deployCertsToBMCs | default "false" | toString) "true") (not .Values.clusterCurator) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs-playbook
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+data:
+  configure-bmcs.yaml: |
+{{ .Files.Get "files/configure-bmcs.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metal3.io"]
+    resources: ["baremetalhosts"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.clusterName }}-configure-bmcs
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-configure-bmcs
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["default-ingress-cert"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["metal3-ironic-tls"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.clusterName }}-configure-bmcs
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-configure-bmcs
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-configure-bmcs
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-configure-bmcs
+      restartPolicy: Never
+      volumes:
+        - name: playbook
+          configMap:
+            name: {{ .Values.clusterName }}-configure-bmcs-playbook
+      containers:
+        - name: configure-bmcs
+          image: {{ .Values.executionEnvironmentImage | default "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest" }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: playbook
+              mountPath: /playbooks
+          command: ["/bin/bash", "-c"]
+          args:
+            - ansible-playbook /playbooks/configure-bmcs.yaml -v
+{{- end }}

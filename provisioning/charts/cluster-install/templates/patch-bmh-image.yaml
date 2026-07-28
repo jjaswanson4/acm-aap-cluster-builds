@@ -1,0 +1,86 @@
+{{- if include "cluster.hasBMC" . }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-patch-bmh
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.clusterName }}-patch-bmh
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "2"
+rules:
+  - apiGroups: ["agent-install.openshift.io"]
+    resources: ["infraenvs"]
+    verbs: ["get"]
+  - apiGroups: ["metal3.io"]
+    resources: ["baremetalhosts"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-patch-bmh
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.clusterName }}-patch-bmh
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-patch-bmh
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-patch-bmh
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "2"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-patch-bmh
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-patch-bmh
+      restartPolicy: Never
+      containers:
+        - name: patch-bmh
+          image: "registry.redhat.io/openshift4/ose-cli:latest"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash"]
+          args:
+            - -exc
+            - |
+              cluster_name="{{ .Values.clusterName }}"
+
+              echo "Waiting for InfraEnv ISO URL..."
+              iso_url=""
+              while [ -z "$iso_url" ]; do
+                iso_url=$(oc get infraenv "$cluster_name" -n "$cluster_name" -o jsonpath='{.status.isoDownloadURL}' 2>/dev/null)
+                [ -z "$iso_url" ] && sleep 5
+              done
+              echo "ISO URL: $iso_url"
+
+              for bmh in $(oc get baremetalhost -n "$cluster_name" -o name); do
+                current_url=$(oc get "$bmh" -n "$cluster_name" -o jsonpath='{.spec.image.url}' 2>/dev/null)
+                if [ "$current_url" = "$iso_url" ]; then
+                  echo "$bmh already has correct ISO URL, skipping"
+                  continue
+                fi
+                echo "Patching $bmh with discovery ISO..."
+                oc patch "$bmh" -n "$cluster_name" --type=merge -p '{"spec":{"image":{"url":"'"$iso_url"'","format":"live-iso"}}}'
+              done
+
+              echo "All BareMetalHosts patched with discovery ISO"
+{{- end }}

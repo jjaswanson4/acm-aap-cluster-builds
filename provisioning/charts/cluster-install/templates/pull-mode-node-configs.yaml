@@ -1,0 +1,21 @@
+{{- if eq .Values.registrationMode "pull" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-configs
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "-1"
+data:
+{{- range .Values.nodes }}
+  {{ .hostname }}: |
+    {
+      "spec": {
+        "hostname": "{{ .hostname }}",
+        "role": "{{ .role }}"
+      },
+      "bootMACAddress": "{{ .bootMACAddress }}"
+    }
+{{- end }}
+{{- end }}

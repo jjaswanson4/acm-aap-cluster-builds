@@ -1,0 +1,90 @@
+{{- if include "cluster.hasBMC" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmc-boot-playbook
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "4"
+data:
+  configure-bmc-boot.yaml: |
+{{ .Files.Get "files/configure-bmc-boot.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmc-boot
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "4"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmc-boot
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "4"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metal3.io"]
+    resources: ["baremetalhosts"]
+    verbs: ["get", "list"]
+  - apiGroups: ["agent-install.openshift.io"]
+    resources: ["agents"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmc-boot
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.clusterName }}-configure-bmc-boot
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-configure-bmc-boot
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-configure-bmc-boot
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "4"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-configure-bmc-boot
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-configure-bmc-boot
+      restartPolicy: Never
+      volumes:
+        - name: playbook
+          configMap:
+            name: {{ .Values.clusterName }}-configure-bmc-boot-playbook
+      containers:
+        - name: configure-bmc-boot
+          image: {{ .Values.executionEnvironmentImage | default "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest" }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: playbook
+              mountPath: /playbooks
+          command: ["/bin/bash", "-c"]
+          args:
+            - ansible-playbook /playbooks/configure-bmc-boot.yaml -v
+{{- end }}

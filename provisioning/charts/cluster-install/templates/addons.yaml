@@ -1,0 +1,32 @@
+{{- $governanceEnabled := true }}
+{{- if hasKey .Values "addons" }}
+{{- if hasKey .Values.addons "governancePolicyFramework" }}
+{{- $governanceEnabled = .Values.addons.governancePolicyFramework }}
+{{- end }}
+{{- end }}
+{{- if $governanceEnabled }}
+---
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ManagedClusterAddOn
+metadata:
+  name: governance-policy-framework
+  namespace: {{ .Values.namespace }}
+spec:
+  installNamespace: open-cluster-management-agent-addon
+{{- end }}
+{{- $configPolicyEnabled := true }}
+{{- if hasKey .Values "addons" }}
+{{- if hasKey .Values.addons "configPolicyController" }}
+{{- $configPolicyEnabled = .Values.addons.configPolicyController }}
+{{- end }}
+{{- end }}
+{{- if $configPolicyEnabled }}
+---
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ManagedClusterAddOn
+metadata:
+  name: config-policy-controller
+  namespace: {{ .Values.namespace }}
+spec:
+  installNamespace: open-cluster-management-agent-addon
+{{- end }}

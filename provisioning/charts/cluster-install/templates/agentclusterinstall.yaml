@@ -1,0 +1,49 @@
+---
+apiVersion: extensions.hive.openshift.io/v1beta1
+kind: AgentClusterInstall
+metadata:
+  name: {{ .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+  annotations:
+    agent-install.openshift.io/install-config-overrides: |
+      {
+        "cpuPartitioningMode": {{ .Values.agentClusterInstall.installConfigOverrides.cpuPartitioningMode | quote }},
+        "capabilities": {
+          "baselineCapabilitySet": {{ .Values.agentClusterInstall.installConfigOverrides.capabilities.baselineCapabilitySet | quote }},
+          "additionalEnabledCapabilities": [
+{{- $last := sub (len .Values.agentClusterInstall.installConfigOverrides.capabilities.additionalEnabledCapabilities) 1 }}
+{{- range $index, $cap := .Values.agentClusterInstall.installConfigOverrides.capabilities.additionalEnabledCapabilities }}
+            {{ $cap | quote }}{{ if ne $index $last }},{{ end }}
+{{- end }}
+          ]
+        }
+      }
+spec:
+{{- $totalAgents := add .Values.agentClusterInstall.provisionRequirements.controlPlaneAgents .Values.agentClusterInstall.provisionRequirements.workerAgents }}
+{{- if gt $totalAgents 1 }}
+  apiVIP: {{ .Values.agentClusterInstall.apiVIP | quote }}
+  ingressVIP: {{ .Values.agentClusterInstall.ingressVIP | quote }}
+{{- end }}
+  clusterDeploymentRef:
+    name: {{ .Values.clusterName }}
+  imageSetRef:
+    name: {{ .Values.agentClusterInstall.imageSetRef }}
+{{- if eq .Values.registrationMode "pull" }}
+  holdInstallation: true
+{{- end }}
+  manifestsConfigMapRefs:
+    - name: cluster-manifests
+  networking:
+    clusterNetwork:
+{{- range .Values.agentClusterInstall.networking.clusterNetwork }}
+    - cidr: {{ .cidr }}
+      hostPrefix: {{ .hostPrefix }}
+{{- end }}
+    serviceNetwork:
+{{- range .Values.agentClusterInstall.networking.serviceNetwork }}
+    - {{ . }}
+{{- end }}
+  provisionRequirements:
+    controlPlaneAgents: {{ .Values.agentClusterInstall.provisionRequirements.controlPlaneAgents }}
+    workerAgents: {{ .Values.agentClusterInstall.provisionRequirements.workerAgents }}
+  sshPublicKey: {{ .Values.sshPublicKey | quote }}

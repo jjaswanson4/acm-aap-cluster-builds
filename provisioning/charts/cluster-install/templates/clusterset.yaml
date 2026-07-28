@@ -1,0 +1,24 @@
+{{- if .Values.clusterSet }}
+{{- $existingClusterSet := (lookup "cluster.open-cluster-management.io/v1beta2" "ManagedClusterSet" "" .Values.clusterSet) }}
+{{- if not $existingClusterSet }}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSet
+metadata:
+  name: {{ .Values.clusterSet }}
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  clusterSelector:
+    selectorType: ExclusiveClusterSetLabel
+{{- end }}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: {{ .Values.clusterSet }}
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterSet: {{ .Values.clusterSet }}
+{{- end }}

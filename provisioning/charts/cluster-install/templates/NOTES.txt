@@ -1,0 +1,193 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your cluster "{{ .Values.clusterName }}" is being deployed to namespace "{{ .Values.namespace }}".
+
+Cluster Details:
+  - Cluster Name: {{ .Values.clusterName }}
+  - Base Domain: {{ .Values.baseDomain }}
+  - Full Domain: {{ .Values.clusterName }}.{{ .Values.baseDomain }}
+  - API VIP: {{ .Values.agentClusterInstall.apiVIP }}
+  - Ingress VIP: {{ .Values.agentClusterInstall.ingressVIP }}
+  - Control Plane Nodes: {{ .Values.agentClusterInstall.provisionRequirements.controlPlaneAgents }}
+  - Worker Nodes: {{ .Values.agentClusterInstall.provisionRequirements.workerAgents }}
+
+Nodes:
+{{- range .Values.nodes }}
+  - {{ .name }}: {{ .hostname }} ({{ .network.ipv4.address }})
+{{- end }}
+
+{{- if eq .Values.registrationMode "pull" }}
+
+ACM Registration Mode: PULL
+  Pull mode is enabled. The cluster will pull registration manifests from ACM.
+  Post-install Jobs will:
+    1. Wait for ACM import secrets
+    2. Configure agents with node-specific settings
+    3. Apply import manifests to the cluster
+
+  Check pull-mode Job status:
+    oc get jobs -n {{ .Values.namespace }} | grep {{ .Values.clusterName }}
+
+  View pull-mode Job logs:
+    oc logs -n {{ .Values.namespace }} job/{{ .Values.clusterName }}-update-manifests
+    oc logs -n {{ .Values.namespace }} job/{{ .Values.clusterName }}-update-agents
+{{- else }}
+
+ACM Registration Mode: PUSH (default)
+  ACM will automatically push import manifests to the cluster.
+{{- end }}
+
+{{- if .Values.clusterCurator }}
+
+ClusterCurator: ENABLED
+  AAP integration is configured. Pre-installation hooks will run before cluster installation.
+  Auth Secret: {{ .Values.clusterCurator.towerAuthSecret | default "aap-credentials-for-acm" }}
+{{- if .Values.clusterCurator.prehook }}
+  Prehook Jobs:
+{{- range .Values.clusterCurator.prehook }}
+    - {{ .name }} ({{ .type | default "Job" }})
+{{- end }}
+{{- end }}
+
+  Check ClusterCurator status:
+    oc get clustercurator {{ .Values.clusterCurator.name | default .Values.clusterName }} -n {{ .Values.namespace }}
+
+  NOTE: The install prehook runs AFTER agents are discovered but BEFORE cluster installation.
+        Ensure AAP credentials secret "{{ .Values.clusterCurator.towerAuthSecret | default "aap-credentials-for-acm" }}" exists in namespace "{{ .Values.namespace }}".
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ISO Download URL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- $infraenv := "" }}
+{{- if .Capabilities.APIVersions.Has "agent-install.openshift.io/v1beta1" }}
+{{- $infraenv = lookup "agent-install.openshift.io/v1beta1" "InfraEnv" .Values.namespace .Values.clusterName }}
+{{- end }}
+{{- if $infraenv }}
+{{- if $infraenv.status }}
+{{- if $infraenv.status.isoDownloadURL }}
+
+ISO is ready! Download URL:
+  {{ $infraenv.status.isoDownloadURL }}
+
+Download with wget:
+  wget --no-check-certificate -O {{ .Values.clusterName }}-discovery.iso {{ $infraenv.status.isoDownloadURL }}
+
+Download with curl:
+  curl -k -L -o {{ .Values.clusterName }}-discovery.iso {{ $infraenv.status.isoDownloadURL }}
+
+{{- else }}
+
+The InfraEnv is being processed. The ISO URL is not yet available.
+Run this command to get the ISO URL once it's ready:
+
+  oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}{"\n"}'
+
+Or watch for it:
+
+  watch oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}{"\n"}'
+
+Once available, download with:
+
+  wget --no-check-certificate -O {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+Or with curl:
+
+  curl -k -L -o {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+{{- end }}
+{{- else }}
+
+The InfraEnv is being created. The ISO URL will be available shortly.
+Run this command to get the ISO URL once it's ready:
+
+  oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}{"\n"}'
+
+Once available, download with:
+
+  wget --no-check-certificate -O {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+Or with curl:
+
+  curl -k -L -o {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+{{- end }}
+{{- else }}
+
+The InfraEnv is being created. The ISO URL will be available shortly.
+Run this command to get the ISO URL once it's ready:
+
+  oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}{"\n"}'
+
+Once available, download with:
+
+  wget --no-check-certificate -O {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+Or with curl:
+
+  curl -k -L -o {{ .Values.clusterName }}-discovery.iso $(oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.isoDownloadURL}')
+
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Kubeconfig Download (Available After Installation Completes)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The cluster kubeconfig will be available once installation completes (typically 30-60 minutes).
+
+Check if installation is complete:
+
+  oc get agentclusterinstall {{ .Values.clusterName }} -n {{ .Values.namespace }} -o jsonpath='{.status.conditions[?(@.type=="Completed")].status}{"\n"}'
+
+Download kubeconfig once ready:
+
+  oc extract secret/{{ .Values.clusterName }}-admin-kubeconfig -n {{ .Values.namespace }} --to=- > {{ .Values.clusterName }}-kubeconfig
+
+Or save to a specific file:
+
+  oc extract secret/{{ .Values.clusterName }}-admin-kubeconfig -n {{ .Values.namespace }} --to=. --confirm
+
+Use the kubeconfig:
+
+  export KUBECONFIG={{ .Values.clusterName }}-kubeconfig
+  oc get nodes
+
+Get admin password:
+
+  oc extract secret/{{ .Values.clusterName }}-admin-password -n {{ .Values.namespace }} --to=-
+
+Web Console URL:
+
+  https://console-openshift-console.apps.{{ .Values.clusterName }}.{{ .Values.baseDomain }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Monitoring Installation Progress
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Check InfraEnv status:
+   oc get infraenv {{ .Values.clusterName }} -n {{ .Values.namespace }}
+
+2. Check cluster deployment:
+   oc get clusterdeployment {{ .Values.clusterName }} -n {{ .Values.namespace }}
+
+3. Check agent cluster install:
+   oc get agentclusterinstall {{ .Values.clusterName }} -n {{ .Values.namespace }}
+
+4. Check baremetal hosts:
+   oc get baremetalhosts -n {{ .Values.namespace }}
+
+5. Watch discovered agents:
+   oc get agents -n {{ .Values.namespace }}
+
+6. View installation logs:
+   oc logs -n multicluster-engine -l app=assisted-service -f
+
+Installation phases:
+  1. Namespace and secrets are created
+  2. Cluster manifests ConfigMap is created
+  3. Main resources are created (BMH, NMStateConfig, ClusterDeployment, etc.)
+  4. InfraEnv generates installation ISO (this may take a few minutes)
+  5. Nodes boot from ISO and begin installation
+  6. Cluster installation completes
+
+For more information, see the chart README.md.

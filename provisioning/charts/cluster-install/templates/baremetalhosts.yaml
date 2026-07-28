@@ -1,0 +1,35 @@
+{{- range .Values.nodes }}
+{{- if .bmcAddress }}
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+  annotations:
+{{- if ne ($.Values.baremetalHostInspectionEnabled | default "false") "true" }}
+    inspect.metal3.io: disabled
+{{- end }}
+    bmac.agent-install.openshift.io/infraenv-name: {{ $.Values.clusterName | quote }}
+    bmac.agent-install.openshift.io/hostname: {{ .hostname | quote }}
+    bmac.agent-install.openshift.io/role: {{ .role | quote }}
+{{- if or (and (eq ($.Values.deployCertsToBMCs | default "false") "true") (not $.Values.clusterCurator)) (ne ($.Values.baremetalHostPaused | default "true") "false") }}
+    baremetalhost.metal3.io/paused: ""
+{{- end }}
+{{- if eq ($.Values.baremetalHostResourcePolicy | default "keep") "keep" }}
+    "helm.sh/resource-policy": keep
+    "argocd.argoproj.io/sync-options": "Prune=false"
+{{- end }}
+    "argocd.argoproj.io/sync-wave": "0"
+spec:
+  bootMACAddress: {{ .bootMACAddress }}
+  bmc:
+    address: {{ .bmcAddress }}
+    credentialsName: {{ .name }}-bmc
+    disableCertificateVerification: {{ $.Values.baremetalHostDisableCertificateVerification | default true }}
+  automatedCleaningMode: {{ $.Values.baremetalHostAutomatedCleaningMode | default "disabled" }}
+  online: {{ $.Values.baremetalHostOnline | default true }}
+  rootDeviceHints:
+    wwn: {{ .rootDeviceWWN }}
+{{- end }}
+{{- end }}

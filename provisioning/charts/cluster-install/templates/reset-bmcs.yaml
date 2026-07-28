@@ -1,0 +1,147 @@
+{{- if and (include "cluster.hasBMC" .) (eq ($.Values.resetBMCs | default "false" | toString) "true") }}
+{{- $argocd := eq (.Values.deployMethod | default "helm" | toString) "argocd" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/sync-wave": "-10"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-10"
+{{- end }}
+{{- if eq (.Values.namespaceResourcePolicy | default "keep") "keep" }}
+    "helm.sh/resource-policy": keep
+    "argocd.argoproj.io/sync-options": "Prune=false"
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.clusterName }}-reset-bmcs-playbook
+  namespace: {{ .Values.namespace }}
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
+    "argocd.argoproj.io/sync-wave": "-5"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}
+data:
+  reset-bmcs.yaml: |
+{{ .Files.Get "files/reset-bmcs.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-reset-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
+    "argocd.argoproj.io/sync-wave": "-5"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}
+{{- if eq ($.Values.cleanIronicNodes | default "false" | toString) "true" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.clusterName }}-reset-bmcs
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
+    "argocd.argoproj.io/sync-wave": "-5"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-reset-bmcs
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
+    "argocd.argoproj.io/sync-wave": "-5"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.clusterName }}-reset-bmcs
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-reset-bmcs
+    namespace: {{ .Values.namespace }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-reset-bmcs
+  namespace: {{ .Values.namespace }}
+  annotations:
+{{- if $argocd }}
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
+    "argocd.argoproj.io/sync-wave": "0"
+{{- else }}
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-reset-bmcs
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-reset-bmcs
+      restartPolicy: Never
+      volumes:
+        - name: playbook
+          configMap:
+            name: {{ .Values.clusterName }}-reset-bmcs-playbook
+      containers:
+        - name: reset-bmcs
+          image: {{ .Values.executionEnvironmentImage | default "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest" }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BMC_HOSTS
+              value: '[{{- range $i, $node := .Values.nodes }}{{- if $node.bmcAddress }}{{- if $i }},{{ end }}{"name":"{{ $node.name }}","address":"{{ regexReplaceAll ".*https?://([^/]+)/.*" $node.bmcAddress "${1}" }}","username":"{{ $node.bmcCredentials.username }}","password":"{{ $node.bmcCredentials.password }}"}{{- end }}{{- end }}]'
+            - name: CLEAN_IRONIC_NODES
+              value: {{ .Values.cleanIronicNodes | default "false" | toString | quote }}
+            - name: REBOOT_BMCS
+              value: {{ .Values.rebootBMCs | default "false" | toString | quote }}
+          volumeMounts:
+            - name: playbook
+              mountPath: /playbooks
+          command: ["/bin/bash", "-c"]
+          args:
+            - ansible-playbook /playbooks/reset-bmcs.yaml -v
+{{- end }}

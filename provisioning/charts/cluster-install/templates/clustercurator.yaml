@@ -1,0 +1,29 @@
+{{- if .Values.clusterCurator }}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: ClusterCurator
+metadata:
+  name: {{ .Values.clusterCurator.name | default .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "-1"
+spec:
+  desiredCuration: {{ .Values.clusterCurator.desiredCuration | default "install" }}
+  install:
+    towerAuthSecret: {{ .Values.clusterCurator.towerAuthSecret | default "aap-credentials-for-acm" }}
+{{- if .Values.clusterCurator.prehook }}
+    prehook:
+{{- range .Values.clusterCurator.prehook }}
+      - name: {{ .name | quote }}
+{{- if .type }}
+        type: {{ .type }}
+{{- end }}
+{{- if .extra_vars }}
+        extra_vars:
+{{- range $key, $value := .extra_vars }}
+          {{ $key }}: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

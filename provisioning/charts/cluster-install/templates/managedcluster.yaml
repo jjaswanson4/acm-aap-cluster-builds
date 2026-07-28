@@ -1,0 +1,19 @@
+{{- if eq .Values.registrationMode "pull" }}
+---
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: {{ .Values.clusterName }}
+  labels:
+    cloud: auto-detect
+    vendor: OpenShift
+    name: {{ .Values.clusterName }}
+{{- if .Values.clusterSet }}
+    cluster.open-cluster-management.io/clusterset: {{ .Values.clusterSet }}
+{{- end }}
+{{- range $key, $value := .Values.managedClusterLabels }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+spec:
+  hubAcceptsClient: true
+{{- end }}

@@ -1,0 +1,207 @@
+{{- if eq .Values.registrationMode "pull" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-update-manifests
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.clusterName }}-update-manifests
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "create", "patch", "update"]
+  - apiGroups: ["extensions.hive.openshift.io"]
+    resources: ["agentclusterinstalls"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-update-manifests
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.clusterName }}-update-manifests
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-update-manifests
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-update-manifests
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-update-manifests
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-update-manifests
+      restartPolicy: Never
+      containers:
+        - name: update-manifests
+          image: "registry.redhat.io/openshift4/ose-cli:latest"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash"]
+          args:
+            - -exc
+            - |
+              # Functions from update-manifests.sh
+              get_secret() {
+                oc get secret -n {{ .Values.namespace }} -l managedcluster-import-controller.open-cluster-management.io/import-secret "${@}"
+              }
+              import_secret_count() {
+                get_secret -ogo-template='{{`{{ len .items }}`}}' || echo 0
+              }
+              get_name() {
+                get_secret -ogo-template='{{`{{ (index .items 0).metadata.name }}`}}'
+              }
+              get_manifests() {
+                raw_manifests="$(get_secret -ogo-template='{{`{{ $data := (index .items 0).data }}{{ index $data "crds.yaml" | base64decode }}{{ "\n" }}{{ index $data "import.yaml" | base64decode }}`}}')"
+
+                orig_kubeconfig="$(echo "$raw_manifests" | awk '/kubeconfig:/{print $2}' | tr -d '"')"
+                modified_kubeconfig="$(echo "$orig_kubeconfig" | base64 -d | sed '/certificate-authority-data/d' | base64 -w0)"
+
+                echo "$raw_manifests" \
+                | sed -e "s/$orig_kubeconfig/$modified_kubeconfig/" \
+                      -e '/kubeConfigSecrets: null/{
+                            s//kubeConfigSecrets:\n          - name: bootstrap-hub-kubeconfig/
+                          }' \
+                | sed 's/^/        /'
+              }
+
+              # Wait for import secret to be created
+              echo "Waiting for ACM import secret to be created..."
+              while (($(import_secret_count) < 1)); do
+                sleep 5
+              done
+
+              echo "Import secret found, creating import manifests ConfigMap..."
+
+              # OpenShift tools image for spoke cluster jobs
+              OPENSHIFT_TOOLS_IMAGE="registry.redhat.io/openshift4/ose-cli:latest"
+
+              cat <<EOF | oc apply -f-
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: $(get_name)
+                namespace: {{ .Values.namespace }}
+              data:
+                import-namespace.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: import-hub
+                import-configmap.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: spoke-config
+                    namespace: import-hub
+                  data:
+                    import.yaml: |
+              $(get_manifests)
+                spoke-config-sa.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: spoke-config
+                    namespace: import-hub
+                spoke-config-rbac.yaml: |
+                  ---
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: ClusterRoleBinding
+                  metadata:
+                    name: spoke-config
+                  roleRef:
+                    apiGroup: rbac.authorization.k8s.io
+                    kind: ClusterRole
+                    name: cluster-admin
+                  subjects:
+                  - kind: ServiceAccount
+                    name: spoke-config
+                    namespace: import-hub
+                spoke-config-job.yaml: |
+                  ---
+                  apiVersion: batch/v1
+                  kind: Job
+                  metadata:
+                    name: spoke-config
+                    namespace: import-hub
+                  spec:
+                    backoffLimit: 4
+                    template:
+                      spec:
+                        serviceAccount: spoke-config
+                        serviceAccountName: spoke-config
+                        restartPolicy: Never
+                        initContainers:
+                          - name: wait-for-operators
+                            image: $OPENSHIFT_TOOLS_IMAGE
+                            imagePullPolicy: IfNotPresent
+                            command: ["/bin/bash"]
+                            args:
+                              - -xc
+                              - oc wait --all --for=condition=Available=True --for=condition=Progressing=False --for=condition=Degraded=False clusteroperators.config.openshift.io --timeout=120m
+                        containers:
+                          - name: spoke-config
+                            image: $OPENSHIFT_TOOLS_IMAGE
+                            imagePullPolicy: IfNotPresent
+                            command: ["/bin/bash"]
+                            args:
+                              - -xc
+                              - while ! oc apply --server-side=true -f /data/import.yaml; do sleep 5; done
+                            volumeMounts:
+                              - name: spoke-config
+                                mountPath: /data
+                        volumes:
+                          - name: spoke-config
+                            configMap:
+                              name: spoke-config
+                              defaultMode: 420
+              EOF
+
+              # Patch the AgentClusterInstall to reference the import manifests
+              echo "Patching AgentClusterInstall to add import manifests..."
+              for aci in $(oc get agentclusterinstall -n {{ .Values.namespace }} -oname); do
+                # Get existing manifestsConfigMapRefs
+                existing_refs="$(oc get "$aci" -n {{ .Values.namespace }} -ojsonpath='{.spec.manifestsConfigMapRefs[*].name}')"
+                import_configmap_name="$(get_name)"
+
+                # Check if import configmap is already referenced
+                if [[ " $existing_refs " =~ " $import_configmap_name " ]]; then
+                  echo "$aci already references $import_configmap_name, skipping patch"
+                else
+                  # Build manifestsConfigMapRefs array using oc patch with json-patch
+                  # Get current array and append new item
+                  oc patch "$aci" -n {{ .Values.namespace }} --type=json -p '[
+                    {"op": "add", "path": "/spec/manifestsConfigMapRefs/-", "value": {"name": "'$import_configmap_name'"}},
+                    {"op": "replace", "path": "/spec/holdInstallation", "value": false}
+                  ]'
+                  echo "Successfully patched $aci to include $import_configmap_name and released holdInstallation"
+                  echo "manifestsConfigMapRefs now includes: $(oc get "$aci" -n {{ .Values.namespace }} -ojsonpath='{.spec.manifestsConfigMapRefs[*].name}')"
+                fi
+              done
+
+              echo "Pull-mode import manifests configured successfully"
+{{- end }}

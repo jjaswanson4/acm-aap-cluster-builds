@@ -1,0 +1,21 @@
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: InfraEnv
+metadata:
+  name: {{ .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterRef:
+    name: {{ .Values.clusterName }}
+    namespace: {{ .Values.namespace }}
+  pullSecretRef:
+    name: pull-secret
+  sshAuthorizedKey: {{ .Values.sshPublicKey | quote }}
+  kernelArguments:
+{{- range .Values.infraEnv.kernelArguments }}
+      - operation: {{ .operation }}
+        value: {{ .value | quote }}
+{{- end }}
+  nmStateConfigLabelSelector:
+    matchLabels:
+      infraenvs.agent-install.openshift.io: {{ .Values.clusterName | quote }}

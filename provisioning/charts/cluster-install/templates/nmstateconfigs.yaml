@@ -1,0 +1,36 @@
+{{- range $index, $node := .Values.nodes }}
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: NMStateConfig
+metadata:
+  name: node{{ $index }}-network-config
+  namespace: {{ $.Values.namespace }}
+  labels:
+    infraenvs.agent-install.openshift.io: {{ $.Values.clusterName | quote }}
+spec:
+  interfaces:
+    - name: {{ $node.network.interface }}
+      macAddress: {{ $node.network.macAddress | quote }}
+  config:
+    interfaces:
+      - name: {{ $node.network.interface }}
+        type: ethernet
+        state: up
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ $node.network.ipv4.address }}
+              prefix-length: {{ $node.network.ipv4.prefixLength }}
+    dns-resolver:
+      config:
+        server:
+{{- range $node.network.dns }}
+          - {{ . }}
+{{- end }}
+    routes:
+      config:
+        - destination: 0.0.0.0/0
+          next-hop-address: {{ $node.network.gateway }}
+          next-hop-interface: {{ $node.network.interface }}
+{{- end }}

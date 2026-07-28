@@ -1,0 +1,85 @@
+{{- if eq ($.Values.autoApproveHosts | default "false") "true" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-auto-approve
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "3"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.clusterName }}-auto-approve
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "3"
+rules:
+  - apiGroups: ["agent-install.openshift.io"]
+    resources: ["agents"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-auto-approve
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "3"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.clusterName }}-auto-approve
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-auto-approve
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-auto-approve
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "3"
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-auto-approve
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-auto-approve
+      restartPolicy: Never
+      containers:
+        - name: auto-approve
+          image: "registry.redhat.io/openshift4/ose-cli:latest"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash"]
+          args:
+            - -exc
+            - |
+              cluster_name="{{ .Values.clusterName }}"
+              expected={{ add ($.Values.agentClusterInstall.provisionRequirements.controlPlaneAgents | default 0) ($.Values.agentClusterInstall.provisionRequirements.workerAgents | default 0) }}
+
+              echo "Waiting for $expected agent(s) to register..."
+              while true; do
+                count=$(oc get agents -n "$cluster_name" --no-headers 2>/dev/null | wc -l)
+                echo "  $count / $expected agents found"
+                [ "$count" -ge "$expected" ] && break
+                sleep 15
+              done
+
+              echo "All agents registered. Approving..."
+              for agent in $(oc get agents -n "$cluster_name" -o name); do
+                approved=$(oc get "$agent" -n "$cluster_name" -o jsonpath='{.spec.approved}')
+                if [ "$approved" = "true" ]; then
+                  echo "$agent already approved, skipping"
+                  continue
+                fi
+                echo "Approving $agent..."
+                oc patch "$agent" -n "$cluster_name" --type=merge -p '{"spec":{"approved":true}}'
+              done
+
+              echo "All agents approved — installation should begin automatically"
+{{- end }}
