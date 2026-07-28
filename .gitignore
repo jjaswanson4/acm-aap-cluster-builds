@@ -1,2 +1,7 @@
 .venv
 ignore/
+tmp/
+*.iso
+*.tar.gz
+PROGRESS*
+bin/
