@@ -1,0 +1,67 @@
+# DHCP Network Configuration
+#
+# 3-node compact cluster with DHCP-assigned addresses on all nodes.
+# DHCP server must provide IP addresses, gateway, and DNS.
+# Ensure DHCP reservations are configured so nodes get consistent IPs —
+# the API/Ingress VIPs must be reachable at known addresses.
+#
+# The NMStateConfig will set dhcp: true on each interface and skip
+# static address assignment, routes, and DNS configuration.
+
+clusterName: my-cluster
+namespace: my-cluster
+baseDomain: example.com
+
+pullSecret:
+  dockerconfigjson: "YOUR_BASE64_ENCODED_PULL_SECRET"
+
+sshPublicKey: "ssh-ed25519 AAAA... user@host"
+
+registrationMode: "push"
+autoApproveHosts: "true"
+baremetalHostPaused: "false"
+
+agentClusterInstall:
+  apiVIP: "192.168.1.10"
+  ingressVIP: "192.168.1.11"
+  imageSetRef: img4.22.6-x86-64-appsub
+  networking:
+    clusterNetwork:
+      - cidr: 10.128.0.0/14
+        hostPrefix: 23
+    serviceNetwork:
+      - 172.30.0.0/16
+  provisionRequirements:
+    controlPlaneAgents: 3
+    workerAgents: 0
+
+nodes:
+  - name: master-0
+    bootMACAddress: "aa:bb:cc:dd:ee:01"
+    hostname: "master-0.my-cluster.example.com"
+    role: "master"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:01"
+      ipv4:
+        dhcp: true
+
+  - name: master-1
+    bootMACAddress: "aa:bb:cc:dd:ee:02"
+    hostname: "master-1.my-cluster.example.com"
+    role: "master"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:02"
+      ipv4:
+        dhcp: true
+
+  - name: master-2
+    bootMACAddress: "aa:bb:cc:dd:ee:03"
+    hostname: "master-2.my-cluster.example.com"
+    role: "master"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:03"
+      ipv4:
+        dhcp: true

@@ -1,0 +1,129 @@
+# Compact 5-Node Cluster
+#
+# 5 control plane nodes running all workloads (master + worker roles combined).
+# No dedicated workers — all masters are schedulable.
+# Pull mode with BMC automation.
+
+clusterName: my-cluster
+namespace: my-cluster
+baseDomain: example.com
+
+pullSecret:
+  dockerconfigjson: "YOUR_BASE64_ENCODED_PULL_SECRET"
+
+sshPublicKey: "ssh-ed25519 AAAA... user@host"
+
+registrationMode: "pull"
+autoApproveHosts: "true"
+deployCertsToBMCs: "true"
+baremetalHostPaused: "false"
+
+agentClusterInstall:
+  apiVIP: "192.168.1.10"
+  ingressVIP: "192.168.1.11"
+  imageSetRef: img4.22.6-x86-64-appsub
+  networking:
+    clusterNetwork:
+      - cidr: 10.128.0.0/14
+        hostPrefix: 23
+    serviceNetwork:
+      - 172.30.0.0/16
+  provisionRequirements:
+    controlPlaneAgents: 5
+    workerAgents: 0
+
+nodes:
+  - name: master-0
+    bmcAddress: redfish-virtualmedia+https://192.168.100.10/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:01"
+    hostname: "master-0.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.0000000000000001"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:01"
+      ipv4:
+        address: "192.168.1.21"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  - name: master-1
+    bmcAddress: redfish-virtualmedia+https://192.168.100.11/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:02"
+    hostname: "master-1.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.0000000000000002"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:02"
+      ipv4:
+        address: "192.168.1.22"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  - name: master-2
+    bmcAddress: redfish-virtualmedia+https://192.168.100.12/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:03"
+    hostname: "master-2.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.0000000000000003"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:03"
+      ipv4:
+        address: "192.168.1.23"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  - name: master-3
+    bmcAddress: redfish-virtualmedia+https://192.168.100.13/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:04"
+    hostname: "master-3.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.0000000000000004"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:04"
+      ipv4:
+        address: "192.168.1.24"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  - name: master-4
+    bmcAddress: redfish-virtualmedia+https://192.168.100.14/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:05"
+    hostname: "master-4.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.0000000000000005"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:05"
+      ipv4:
+        address: "192.168.1.25"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"

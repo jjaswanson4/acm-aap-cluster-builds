@@ -1,0 +1,173 @@
+# LACP Bond Network Configuration
+#
+# 3-node compact cluster with LACP (802.3ad) bonded NICs.
+# Each node has two physical NICs bonded together as bond0.
+# The bond interface carries the node's static IP.
+#
+# This uses the raw NMState config passthrough (network.config) since bond
+# configuration requires multiple interface definitions that the structured
+# schema doesn't support.
+#
+# Switch requirements: the switch ports must be configured for LACP (802.3ad).
+
+clusterName: my-cluster
+namespace: my-cluster
+baseDomain: example.com
+
+pullSecret:
+  dockerconfigjson: "YOUR_BASE64_ENCODED_PULL_SECRET"
+
+sshPublicKey: "ssh-ed25519 AAAA... user@host"
+
+registrationMode: "push"
+autoApproveHosts: "true"
+baremetalHostPaused: "false"
+
+agentClusterInstall:
+  apiVIP: "192.168.1.10"
+  ingressVIP: "192.168.1.11"
+  imageSetRef: img4.22.6-x86-64-appsub
+  networking:
+    clusterNetwork:
+      - cidr: 10.128.0.0/14
+        hostPrefix: 23
+    serviceNetwork:
+      - 172.30.0.0/16
+  provisionRequirements:
+    controlPlaneAgents: 3
+    workerAgents: 0
+
+nodes:
+  - name: master-0
+    bootMACAddress: "aa:bb:cc:dd:ee:01"
+    hostname: "master-0.my-cluster.example.com"
+    role: "master"
+    network:
+      # List both physical NICs for MAC-to-name mapping
+      interfaces:
+        - name: eno1
+          macAddress: "aa:bb:cc:dd:ee:01"
+        - name: eno2
+          macAddress: "aa:bb:cc:dd:ff:01"
+      # Raw NMState config for the bond
+      config:
+        interfaces:
+          - name: eno1
+            type: ethernet
+            state: up
+          - name: eno2
+            type: ethernet
+            state: up
+          - name: bond0
+            type: bond
+            state: up
+            ipv4:
+              enabled: true
+              dhcp: false
+              address:
+                - ip: "192.168.1.21"
+                  prefix-length: 24
+            link-aggregation:
+              mode: 802.3ad
+              options:
+                miimon: "100"
+              port:
+                - eno1
+                - eno2
+        dns-resolver:
+          config:
+            server:
+              - "192.168.1.1"
+        routes:
+          config:
+            - destination: 0.0.0.0/0
+              next-hop-address: "192.168.1.1"
+              next-hop-interface: bond0
+
+  - name: master-1
+    bootMACAddress: "aa:bb:cc:dd:ee:02"
+    hostname: "master-1.my-cluster.example.com"
+    role: "master"
+    network:
+      interfaces:
+        - name: eno1
+          macAddress: "aa:bb:cc:dd:ee:02"
+        - name: eno2
+          macAddress: "aa:bb:cc:dd:ff:02"
+      config:
+        interfaces:
+          - name: eno1
+            type: ethernet
+            state: up
+          - name: eno2
+            type: ethernet
+            state: up
+          - name: bond0
+            type: bond
+            state: up
+            ipv4:
+              enabled: true
+              dhcp: false
+              address:
+                - ip: "192.168.1.22"
+                  prefix-length: 24
+            link-aggregation:
+              mode: 802.3ad
+              options:
+                miimon: "100"
+              port:
+                - eno1
+                - eno2
+        dns-resolver:
+          config:
+            server:
+              - "192.168.1.1"
+        routes:
+          config:
+            - destination: 0.0.0.0/0
+              next-hop-address: "192.168.1.1"
+              next-hop-interface: bond0
+
+  - name: master-2
+    bootMACAddress: "aa:bb:cc:dd:ee:03"
+    hostname: "master-2.my-cluster.example.com"
+    role: "master"
+    network:
+      interfaces:
+        - name: eno1
+          macAddress: "aa:bb:cc:dd:ee:03"
+        - name: eno2
+          macAddress: "aa:bb:cc:dd:ff:03"
+      config:
+        interfaces:
+          - name: eno1
+            type: ethernet
+            state: up
+          - name: eno2
+            type: ethernet
+            state: up
+          - name: bond0
+            type: bond
+            state: up
+            ipv4:
+              enabled: true
+              dhcp: false
+              address:
+                - ip: "192.168.1.23"
+                  prefix-length: 24
+            link-aggregation:
+              mode: 802.3ad
+              options:
+                miimon: "100"
+              port:
+                - eno1
+                - eno2
+        dns-resolver:
+          config:
+            server:
+              - "192.168.1.1"
+        routes:
+          config:
+            - destination: 0.0.0.0/0
+              next-hop-address: "192.168.1.1"
+              next-hop-interface: bond0
