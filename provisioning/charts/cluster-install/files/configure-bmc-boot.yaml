@@ -1,0 +1,86 @@
+---
+- name: Configure BMC Boot Devices and Eject Virtual Media
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    namespace: "{{ lookup('env', 'NAMESPACE') }}"
+  tasks:
+    - name: Get BareMetalHost resources
+      kubernetes.core.k8s_info:
+        api_version: metal3.io/v1alpha1
+        kind: BareMetalHost
+        namespace: "{{ namespace }}"
+      register: _bmh_list
+
+    - name: End play if no BareMetalHosts found
+      ansible.builtin.meta: end_play
+      when: _bmh_list.resources | length == 0
+
+    - name: Get BMC credentials for each host
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ item.spec.bmc.credentialsName }}"
+        namespace: "{{ namespace }}"
+      loop: "{{ _bmh_list.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      register: _bmc_credentials
+
+    - name: Build host inventory
+      ansible.builtin.set_fact:
+        _bmc_hosts: "{{ _bmc_hosts | default([]) + [_host] }}"
+      vars:
+        _host:
+          name: "{{ item.item.metadata.name }}"
+          address: "{{ item.item.spec.bmc.address | regex_search('https?://([^/]+)/', '\\1') | first }}"
+          username: "{{ item.resources[0].data.username | b64decode | trim }}"
+          password: "{{ item.resources[0].data.password | b64decode | trim }}"
+      loop: "{{ _bmc_credentials.results }}"
+      loop_control:
+        label: "{{ item.item.metadata.name }}"
+
+    - name: Wait for all agents to register
+      kubernetes.core.k8s_info:
+        api_version: agent-install.openshift.io/v1beta1
+        kind: Agent
+        namespace: "{{ namespace }}"
+      register: _agents
+      until: (_agents.resources | length) >= (_bmh_list.resources | length)
+      retries: 120
+      delay: 15
+
+    - name: Eject all virtual media
+      ansible.builtin.uri:
+        url: "https://{{ item.0.address }}/redfish/v1/Managers/bmc/VirtualMedia/{{ item.1 }}/Actions/VirtualMedia.EjectMedia"
+        method: POST
+        user: "{{ item.0.username }}"
+        password: "{{ item.0.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 204, 400, 500]
+        body_format: json
+        body: {}
+      loop: "{{ _bmc_hosts | product(['Slot_API', 'Slot_0']) | list }}"
+      loop_control:
+        label: "{{ item.0.name }} - {{ item.1 }}"
+
+    - name: Set boot override to HDD with UEFI
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Systems/system"
+        method: PATCH
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 204]
+        body_format: json
+        body:
+          Boot:
+            BootSourceOverrideTarget: "Hdd"
+            BootSourceOverrideEnabled: "Continuous"
+            BootSourceOverrideMode: "UEFI"
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"

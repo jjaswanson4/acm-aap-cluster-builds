@@ -1,0 +1,98 @@
+---
+- name: Configure BMC Certificates and Unpause BareMetalHosts
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    namespace: "{{ lookup('env', 'NAMESPACE') }}"
+  tasks:
+    - name: Get BareMetalHost resources
+      kubernetes.core.k8s_info:
+        api_version: metal3.io/v1alpha1
+        kind: BareMetalHost
+        namespace: "{{ namespace }}"
+      register: _bmh_list
+
+    - name: Get BMC credentials for each host
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ item.spec.bmc.credentialsName }}"
+        namespace: "{{ namespace }}"
+      loop: "{{ _bmh_list.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      register: _bmc_credentials
+
+    - name: Build host inventory
+      ansible.builtin.set_fact:
+        _bmc_hosts: "{{ _bmc_hosts | default([]) + [_host] }}"
+      vars:
+        _host:
+          name: "{{ item.item.metadata.name }}"
+          address: "{{ item.item.spec.bmc.address | regex_search('https?://([^/]+)/', '\\1') | first }}"
+          username: "{{ item.resources[0].data.username | b64decode | trim }}"
+          password: "{{ item.resources[0].data.password | b64decode | trim }}"
+      loop: "{{ _bmc_credentials.results }}"
+      loop_control:
+        label: "{{ item.item.metadata.name }}"
+
+    - name: Get OpenShift ingress CA
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: default-ingress-cert
+        namespace: openshift-config-managed
+      register: _hub_ca_configmap
+
+    - name: Get Metal3 Ironic TLS certificate chain
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: metal3-ironic-tls
+        namespace: openshift-machine-api
+      register: _ironic_tls_secret
+
+    - name: Build combined certificate list
+      ansible.builtin.set_fact:
+        _all_certificates: >-
+          {{
+            _hub_ca_configmap.resources[0].data['ca-bundle.crt']
+            | regex_findall('(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----')
+            +
+            (_ironic_tls_secret.resources[0].data['tls.crt'] | b64decode)
+            | regex_findall('(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----')
+          }}
+
+    - name: Inject certificates to each BMC
+      ansible.builtin.uri:
+        url: "https://{{ item.0.address }}/redfish/v1/Managers/bmc/Truststore/Certificates"
+        method: POST
+        user: "{{ item.0.username }}"
+        password: "{{ item.0.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 201, 204, 500]
+        body_format: json
+        body:
+          CertificateString: "{{ item.1 }}"
+          CertificateType: "PEM"
+      loop: "{{ _bmc_hosts | product(_all_certificates) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+
+    - name: Unpause BareMetalHosts
+      kubernetes.core.k8s:
+        api_version: metal3.io/v1alpha1
+        kind: BareMetalHost
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ namespace }}"
+        state: present
+        merge_type: merge
+        definition:
+          metadata:
+            annotations:
+              baremetalhost.metal3.io/paused: null
+      loop: "{{ _bmh_list.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"

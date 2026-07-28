@@ -1,0 +1,159 @@
+---
+- name: Reset BMCs to Clean State
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    _bmc_hosts: "{{ lookup('env', 'BMC_HOSTS') | from_json }}"
+  tasks:
+    - name: Check if BMC reboot is enabled
+      ansible.builtin.set_fact:
+        _reboot_bmcs: "{{ lookup('env', 'REBOOT_BMCS') | default('false', true) }}"
+
+    - name: Reboot BMCs
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Managers/bmc/Actions/Manager.Reset"
+        method: POST
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 204]
+        body_format: json
+        body:
+          ResetType: "GracefulRestart"
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: _reboot_bmcs | bool
+
+    - name: Wait for BMCs to come back online
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Managers/bmc"
+        method: GET
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200]
+      register: _bmc_status
+      until: _bmc_status is not failed
+      retries: 60
+      delay: 5
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: _reboot_bmcs | bool
+
+    - name: Eject any stale virtual media
+      ansible.builtin.uri:
+        url: "https://{{ item.0.address }}/redfish/v1/Managers/bmc/VirtualMedia/{{ item.1 }}/Actions/VirtualMedia.EjectMedia"
+        method: POST
+        user: "{{ item.0.username }}"
+        password: "{{ item.0.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 204, 400, 500]
+        body_format: json
+        body: {}
+      loop: "{{ _bmc_hosts | product(['Slot_API', 'Slot_0']) | list }}"
+      loop_control:
+        label: "{{ item.0.name }} - {{ item.1 }}"
+
+    - name: Clear boot override
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Systems/system"
+        method: PATCH
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 204]
+        body_format: json
+        body:
+          Boot:
+            BootSourceOverrideTarget: "None"
+            BootSourceOverrideEnabled: "Disabled"
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check if Ironic cleanup is enabled
+      ansible.builtin.set_fact:
+        _clean_ironic: "{{ lookup('env', 'CLEAN_IRONIC_NODES') | default('false', true) }}"
+
+    - name: Build BMC address lookup set
+      ansible.builtin.set_fact:
+        _bmc_addresses: "{{ _bmc_hosts | map(attribute='address') | list }}"
+      when: _clean_ironic | bool
+
+    - name: Find metal3 pod
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: openshift-machine-api
+        label_selectors:
+          - baremetal.openshift.io/cluster-baremetal-operator=metal3-state
+        field_selectors:
+          - status.phase=Running
+      register: _metal3_pods
+      when: _clean_ironic | bool
+
+    - name: End Ironic cleanup if metal3 pod not found
+      ansible.builtin.debug:
+        msg: "metal3 pod not found, skipping Ironic node cleanup"
+      when: _clean_ironic | bool and (_metal3_pods.resources | default([]) | length) == 0
+
+    - name: Get Ironic node list
+      kubernetes.core.k8s_exec:
+        namespace: openshift-machine-api
+        pod: "{{ _metal3_pods.resources[0].metadata.name }}"
+        container: metal3-ironic
+        command: >-
+          curl -sf --unix-socket /shared/ironic.sock
+          http://localhost/v1/nodes/detail
+      register: _ironic_nodes
+      when: _clean_ironic | bool and (_metal3_pods.resources | default([]) | length) > 0
+
+    - name: Find stale Ironic nodes matching our BMC addresses
+      ansible.builtin.set_fact:
+        _stale_ironic_nodes: >-
+          {{
+            (_ironic_nodes.stdout | from_json).nodes
+            | selectattr('driver_info.redfish_address', 'defined')
+            | selectattr('driver_info.redfish_address', 'search', '(' + (_bmc_addresses | join('|')) + ')')
+            | map(attribute='uuid')
+            | list
+          }}
+      when: _clean_ironic | bool and _ironic_nodes.stdout is defined
+
+    - name: Delete stale Ironic nodes
+      kubernetes.core.k8s_exec:
+        namespace: openshift-machine-api
+        pod: "{{ _metal3_pods.resources[0].metadata.name }}"
+        container: metal3-ironic
+        command: >-
+          curl -sf --unix-socket /shared/ironic.sock
+          -X PUT -H 'Content-Type: application/json'
+          -d '{"reason":"reset-bmcs cleanup"}'
+          http://localhost/v1/nodes/{{ item }}/maintenance
+      loop: "{{ _stale_ironic_nodes | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: true
+      when: _clean_ironic | bool
+
+    - name: Confirm deletion of stale Ironic nodes
+      kubernetes.core.k8s_exec:
+        namespace: openshift-machine-api
+        pod: "{{ _metal3_pods.resources[0].metadata.name }}"
+        container: metal3-ironic
+        command: >-
+          curl -sf -w '\n' --unix-socket /shared/ironic.sock
+          -X DELETE
+          http://localhost/v1/nodes/{{ item }}
+      loop: "{{ _stale_ironic_nodes | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: true
+      when: _clean_ironic | bool
