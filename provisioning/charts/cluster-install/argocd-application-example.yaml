@@ -1,0 +1,127 @@
+---
+# ArgoCD Application Example
+# This example shows how to deploy the cluster chart using ArgoCD
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: compact-acp-cluster
+  namespace: argocd
+spec:
+  # Project the application belongs to
+  project: default
+
+  # Source configuration
+  source:
+    # Git repository containing the Helm chart
+    repoURL: https://github.com/your-org/your-repo.git
+    targetRevision: main
+    path: provisioning/charts/cluster
+
+    # Helm-specific configuration
+    helm:
+      # Values file to use (optional - can use inline values instead)
+      valueFiles:
+        - values.yaml
+
+      # Inline values (alternative to valueFiles)
+      # Uncomment and customize as needed
+      # values: |
+      #   clusterName: my-cluster
+      #   namespace: my-cluster
+      #   baseDomain: example.com
+      #   pullSecret:
+      #     dockerconfigjson: "..."
+      #   # ... rest of values
+
+  # Destination cluster and namespace
+  destination:
+    # Target cluster (in-cluster or named cluster)
+    server: https://kubernetes.default.svc
+    # Note: The namespace will be created by the chart
+    # but you can specify it here for ArgoCD tracking
+    namespace: compact-acp
+
+  # Sync policy configuration
+  syncPolicy:
+    # Automated sync configuration (optional)
+    automated:
+      # Automatically sync when git changes detected
+      prune: false  # Don't auto-delete resources (recommended for clusters)
+      selfHeal: true  # Auto-sync when cluster state drifts from git
+      # allowEmpty: false
+
+    # Sync options
+    syncOptions:
+      # Create namespace if it doesn't exist (optional - chart creates it)
+      - CreateNamespace=false
+      # Respect the chart's resource policies
+      - PruneLast=true
+      # Respect sync waves for proper ordering
+      - RespectIgnoreDifferences=true
+
+    # Retry configuration for failed syncs
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in specific fields
+  ignoreDifferences:
+    # Ignore status fields that are managed by operators
+    - group: agent-install.openshift.io
+      kind: InfraEnv
+      jsonPointers:
+        - /status
+    - group: agent-install.openshift.io
+      kind: AgentClusterInstall
+      jsonPointers:
+        - /status
+    - group: hive.openshift.io
+      kind: ClusterDeployment
+      jsonPointers:
+        - /status
+    - group: metal3.io
+      kind: BareMetalHost
+      jsonPointers:
+        - /status
+        - /metadata/annotations/baremetalhost.metal3.io~1status
+
+---
+# Alternative: Using Helm repository instead of Git
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: compact-acp-cluster-helm
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    # Helm repository (if chart is published)
+    repoURL: https://charts.example.com
+    chart: cluster
+    targetRevision: 0.1.0
+
+    helm:
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: compact-acp
+
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
