@@ -1,0 +1,215 @@
+# Example values file for cluster Helm chart
+# This file demonstrates how to customize the chart for your environment
+
+# Basic cluster configuration
+clusterName: my-cluster
+namespace: my-cluster
+
+# Namespace resource policy
+# keep   = Namespace is preserved during helm uninstall (recommended)
+# delete = Namespace is deleted during helm uninstall
+namespaceResourcePolicy: "keep"
+
+# Base domain for the cluster (cluster FQDN will be clusterName.baseDomain)
+baseDomain: example.com
+
+# Pull secret for Red Hat registries (base64 encoded .dockerconfigjson)
+# Obtain from https://console.redhat.com/openshift/install/pull-secret
+pullSecret:
+  dockerconfigjson: 'YOUR_BASE64_ENCODED_PULL_SECRET_HERE'
+
+# SSH public key for cluster node access
+sshPublicKey: "ssh-ed25519 AAAA... user@host"
+
+# BareMetalHost paused state
+# true  = ACM will NOT automatically manage/provision the hosts (recommended for manual control)
+# false = ACM will automatically use BMC for provisioning/management
+baremetalHostPaused: "true"
+
+# BareMetalHost resource policy
+# keep   = BareMetalHost resources are preserved during helm uninstall (recommended)
+# delete = BareMetalHost resources are deleted during helm uninstall
+baremetalHostResourcePolicy: "keep"
+
+# ACM Registration Mode
+# push = ACM pushes registration manifests (default)
+# pull = Cluster pulls registration manifests during installation
+registrationMode: "push"
+
+# ACM ClusterSet
+# Optional: Assign the cluster to a ManagedClusterSet for grouping and RBAC
+# When specified, creates the ClusterSet if it doesn't exist and binds this cluster to it
+# Leave empty to not use ClusterSets
+# clusterSet: "production"
+clusterSet: ""
+
+# ACM Add-ons
+# Configure which ACM add-ons to install on the managed cluster
+addons:
+  # Governance Policy Framework - enables policy enforcement on the cluster
+  # Set to false to disable
+  governancePolicyFramework: true
+  # Config Policy Controller - enables configuration policy enforcement
+  # Set to false to disable
+  configPolicyController: true
+
+# ManagedCluster Labels
+# Custom labels to apply to the ManagedCluster resource
+# These can be used for placement rules, policies, and organization
+# Example:
+#   managedClusterLabels:
+#     autoshift.io/lvm: "true"
+#     environment: production
+#     region: us-east
+managedClusterLabels: {}
+
+# AgentClusterInstall configuration
+agentClusterInstall:
+  # Virtual IPs for API and Ingress
+  apiVIP: "192.168.1.10"
+  ingressVIP: "192.168.1.11"
+
+  # OpenShift version imageSet reference
+  imageSetRef: img4.20.26-x86-64-appsub
+
+  # Install configuration overrides
+  installConfigOverrides:
+    # CPU partitioning mode: None, AllNodes
+    cpuPartitioningMode: "AllNodes"
+
+    # Platform capabilities
+    capabilities:
+      baselineCapabilitySet: "None"
+      additionalEnabledCapabilities:
+        - "baremetal"
+        - "Console"
+        - "Storage"
+        - "Ingress"
+        - "NodeTuning"
+        - "OperatorLifecycleManager"
+        - "marketplace"
+        - "CSISnapshot"
+
+  # Network configuration
+  networking:
+    clusterNetwork:
+      - cidr: 10.128.0.0/14
+        hostPrefix: 23
+    serviceNetwork:
+      - 172.30.0.0/16
+
+  # Cluster sizing
+  provisionRequirements:
+    controlPlaneAgents: 3
+    workerAgents: 0
+
+# InfraEnv configuration
+infraEnv:
+  kernelArguments:
+    - operation: append
+      value: "console=ttyS0,115200n8"
+
+# Cluster manifests (YAML manifests applied to the cluster during installation)
+# Each key becomes a filename in the cluster-manifests ConfigMap
+# Each value is the raw YAML content of the manifest
+# You can add any Kubernetes/OpenShift manifests here (MachineConfig, etc.)
+clusterManifests:
+  # Example 1: Kernel arguments for master nodes
+  99-master-kargs.yaml: |
+    apiVersion: machineconfiguration.openshift.io/v1
+    kind: MachineConfig
+    metadata:
+      labels:
+        machineconfiguration.openshift.io/role: "master"
+      name: 99-master-kargs
+    spec:
+      kernelArguments:
+        - console=ttyS0,115200n8
+
+  # Example 2: Custom chrony configuration
+  99-masters-chrony-configuration.yaml: |
+    apiVersion: machineconfiguration.openshift.io/v1
+    kind: MachineConfig
+    metadata:
+      labels:
+        machineconfiguration.openshift.io/role: master
+      name: 99-masters-chrony-configuration
+    spec:
+      config:
+        ignition:
+          version: 3.4.0
+        storage:
+          files:
+            - contents:
+                source: data:text/plain;charset=utf-8;base64,c2VydmVyIGNsb2NrLnJlZGhhdC5jb20gaWJ1cnN0Cg==
+              mode: 0644
+              overwrite: true
+              path: /etc/chrony.conf
+
+  # Example 3: Add any other manifest you need
+  # 99-custom-manifest.yaml: |
+  #   apiVersion: ...
+  #   kind: ...
+  #   ...
+
+# Node definitions
+nodes:
+  # Master node 1
+  - name: master-0
+    bmcAddress: redfish-virtualmedia+https://192.168.100.10/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:01"
+    hostname: "master-0.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.YOUR_ROOT_DISK_WWN_1"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:01"
+      ipv4:
+        address: "192.168.1.21"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  # Master node 2
+  - name: master-1
+    bmcAddress: redfish-virtualmedia+https://192.168.100.11/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:02"
+    hostname: "master-1.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.YOUR_ROOT_DISK_WWN_2"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:02"
+      ipv4:
+        address: "192.168.1.22"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
+
+  # Master node 3
+  - name: master-2
+    bmcAddress: redfish-virtualmedia+https://192.168.100.12/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "admin"
+      password: "password"
+    bootMACAddress: "aa:bb:cc:dd:ee:03"
+    hostname: "master-2.my-cluster.example.com"
+    role: "master"
+    rootDeviceWWN: "eui.YOUR_ROOT_DISK_WWN_3"
+    network:
+      interface: eno1
+      macAddress: "aa:bb:cc:dd:ee:03"
+      ipv4:
+        address: "192.168.1.23"
+        prefixLength: 24
+      gateway: "192.168.1.1"
+      dns:
+        - "192.168.1.1"
