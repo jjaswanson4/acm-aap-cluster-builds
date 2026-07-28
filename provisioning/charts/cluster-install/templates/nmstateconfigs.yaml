@@ -9,28 +9,57 @@ metadata:
     infraenvs.agent-install.openshift.io: {{ $.Values.clusterName | quote }}
 spec:
   interfaces:
+{{- if $node.network.interfaces }}
+{{- range $node.network.interfaces }}
+    - name: {{ .name }}
+      macAddress: {{ .macAddress | quote }}
+{{- end }}
+{{- else }}
     - name: {{ $node.network.interface }}
       macAddress: {{ $node.network.macAddress | quote }}
+{{- end }}
   config:
+{{- if $node.network.config }}
+{{ $node.network.config | toYaml | indent 4 }}
+{{- else }}
     interfaces:
       - name: {{ $node.network.interface }}
         type: ethernet
         state: up
+{{- if $node.network.mtu }}
+        mtu: {{ $node.network.mtu }}
+{{- end }}
         ipv4:
           enabled: true
+{{- if $node.network.ipv4.dhcp }}
+          dhcp: true
+{{- else }}
           dhcp: false
           address:
             - ip: {{ $node.network.ipv4.address }}
               prefix-length: {{ $node.network.ipv4.prefixLength }}
+{{- end }}
+{{- if not $node.network.ipv4.dhcp }}
+{{- if $node.network.dns }}
     dns-resolver:
       config:
         server:
 {{- range $node.network.dns }}
           - {{ . }}
 {{- end }}
+{{- end }}
     routes:
       config:
         - destination: 0.0.0.0/0
           next-hop-address: {{ $node.network.gateway }}
           next-hop-interface: {{ $node.network.interface }}
+{{- else if $node.network.dns }}
+    dns-resolver:
+      config:
+        server:
+{{- range $node.network.dns }}
+          - {{ . }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

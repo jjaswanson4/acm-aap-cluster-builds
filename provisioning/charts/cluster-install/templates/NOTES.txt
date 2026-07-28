@@ -13,7 +13,7 @@ Cluster Details:
 
 Nodes:
 {{- range .Values.nodes }}
-  - {{ .name }}: {{ .hostname }} ({{ .network.ipv4.address }})
+  - {{ .name }}: {{ .hostname }}{{ with .network.ipv4 }}{{ with .address }} ({{ . }}){{ end }}{{ end }}
 {{- end }}
 
 {{- if eq .Values.registrationMode "pull" }}
