@@ -1,0 +1,299 @@
+clusterName: compact-acp
+namespace: compact-acp
+
+# Namespace resource policy on helm uninstall
+# When set to "keep", the namespace is preserved during helm uninstall
+# When set to "delete" (or any other value), the namespace is deleted during helm uninstall
+# Default: "keep" (recommended to preserve namespace and any resources in it)
+# Set to "delete" if you want the namespace cleaned up when uninstalling the chart
+namespaceResourcePolicy: "keep"
+
+baseDomain: basementinnovation.center
+
+pullSecret:
+  dockerconfigjson: ''
+
+sshPublicKey: ""
+
+# BareMetalHost paused state
+# When set to "true", ACM/Metal3 will NOT attempt to manage or provision the hosts automatically
+# When set to "false", ACM/Metal3 will use the out-of-band management interface (BMC) for provisioning
+# Default: "true" (recommended for manual control and to prevent unexpected reboots)
+# NOTE: When deployCertsToBMCs is enabled (without clusterCurator), BMHs are created paused
+#   regardless of this setting. The configure-bmcs Job (sync-wave 1) injects BMC certificates
+#   and then unpauses the hosts, ensuring certs are in place before BMO mounts the discovery ISO.
+baremetalHostPaused: "true"
+
+# BareMetalHost inspection
+# Controls whether Ironic inspects hosts to discover hardware details (CPU, RAM, disks, NICs)
+# before making them available for provisioning. Inspection boots the host into the Ironic Python
+# Agent (IPA) ramdisk — a small Linux image separate from the discovery ISO — which reports
+# hardware inventory back to Ironic.
+# When set to true (or "true"), the inspect.metal3.io annotation is omitted, enabling inspection
+# When set to false (or "false"), the inspect.metal3.io annotation is set to "disabled"
+# Default: false (inspection disabled — hardware details come from the discovery agent instead)
+# NOTE: The IPA ramdisk used for inspection/cleaning does NOT support custom kernel arguments.
+#   The infraEnv.kernelArguments field only applies to the discovery ISO, not the IPA ramdisk.
+# baremetalHostInspectionEnabled: false
+
+# BareMetalHost automated cleaning mode
+# Controls whether Ironic performs disk cleaning before making a host available for provisioning.
+# Cleaning boots the host into the IPA ramdisk (same as inspection) and wipes disk contents.
+# Options:
+#   "disabled" - No cleaning is performed. Host moves directly to available state. (Fastest)
+#   "metadata" - Wipes partition tables and filesystem signatures only. Quick but not secure.
+#   "full"     - Writes zeros to entire disk. Secure but very slow on large disks.
+#   ""         - Empty string inherits the Ironic/Provisioning CR default (typically "metadata").
+# Default: "disabled"
+# NOTE: Changing this value after a host has already been provisioned can cause the host to get
+#   stuck in "clean wait" state. If this happens, force-delete the BMH (remove finalizers) and
+#   redeploy. The IPA ramdisk used for cleaning does NOT support custom kernel arguments.
+# baremetalHostAutomatedCleaningMode: "disabled"
+
+# BareMetalHost resource policy on helm uninstall
+# When set to "keep", BareMetalHost resources are preserved during helm uninstall
+# When set to "delete" (or any other value), BareMetalHost resources are deleted during helm uninstall
+# Default: "keep" (recommended to prevent accidental deletion of physical host state)
+# Set to "delete" if you want BareMetalHost resources cleaned up when uninstalling the chart
+baremetalHostResourcePolicy: "delete"
+
+# Deploy certificates to BMCs
+# When set to "true", a Job (sync-wave 1) runs an Ansible playbook that discovers BMHs in the
+# namespace, fetches the hub ingress CA and Ironic TLS certificates, and injects them into each
+# BMC's trust store via Redfish. BMHs are created paused and unpaused by the Job after certs
+# are deployed, ensuring certs are in place before BMO mounts the discovery ISO.
+# Ignored when clusterCurator is set (AAP handles cert deployment in that case).
+# Default: "false"
+# deployCertsToBMCs: "true"
+
+# Execution environment image for Ansible Jobs (configure-bmcs)
+# Default: "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest"
+# executionEnvironmentImage: "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest"
+
+# Auto-approve discovered hosts
+# When set to "true", a Job (sync-wave 3) waits for all expected agents to register, then
+# automatically approves them so cluster installation begins without manual intervention.
+# The expected count is derived from agentClusterInstall.provisionRequirements
+# (controlPlaneAgents + workerAgents).
+# Default: "false"
+# autoApproveHosts: "true"
+
+# ACM Registration Mode
+# When set to "push", ACM will push the cluster registration manifests to the cluster (default ACM behavior)
+# When set to "pull", the cluster will pull registration manifests from ACM in a more controlled manner
+# Pull mode creates Jobs that wait for ACM import secrets and configure agents for the cluster
+# Default: "push" (standard ACM registration)
+# Set to "pull" for controlled registration with agent configuration
+registrationMode: "pull"
+
+# ACM ClusterSet
+# Optional: Assign the cluster to a ManagedClusterSet for grouping and RBAC
+# When specified, creates the ClusterSet if it doesn't exist and binds this cluster to it
+# Leave empty or comment out to not use ClusterSets
+# Example: clusterSet: "production"
+clusterSet: "advanced-compute-platforms"
+
+# ACM Add-ons
+# Configure which ACM add-ons to install on the managed cluster
+addons:
+  # Governance Policy Framework - enables policy enforcement on the cluster
+  governancePolicyFramework: true
+  # Config Policy Controller - enables configuration policy enforcement
+  configPolicyController: true
+
+# ManagedCluster Labels
+# Custom labels to apply to the ManagedCluster resource
+# These can be used for placement rules, policies, and organization
+# Example:
+#   managedClusterLabels:
+#     autoshift.io/lvm: "true"
+#     environment: production
+#     region: us-east
+managedClusterLabels: {}
+
+# ClusterCurator - Optional AAP (Ansible Automation Platform) Integration
+# Enables pre-installation automation via AAP job templates
+# When enabled, BMHs are created paused and a Job runs an Ansible playbook to:
+#   1. Discover BMHs and their BMC credentials from the namespace
+#   2. Fetch hub ingress CA and Ironic TLS certificates
+#   3. Inject certificates into each BMC via Redfish
+#   4. Unpause BMHs so BMO can begin provisioning
+# The ClusterCurator install prehook then runs AFTER agents are discovered
+# but BEFORE OCP installation begins.
+# Prerequisites: AAP credentials secret must exist in the cluster namespace
+#   (created by setup/playbooks/connect-aap-to-acm.yaml)
+#
+# Example:
+#   clusterCurator:
+#     executionEnvironmentImage: "registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest"
+#     towerAuthSecret: aap-credentials-for-acm
+#     prehook:
+#       - name: "Configure BMC Certificates"
+#         type: Job
+#         extra_vars:
+#           cluster_name: "my-cluster"
+
+# ArgoCD Agent Mode
+# When enabled, the chart enrolls the new cluster with an ArgoCD principal running
+# on the hub in agent mode. The spoke initiates all connections to the hub via mTLS.
+# Prerequisites:
+#   - An ArgoCD principal instance must be running on the hub (separate from the
+#     main ArgoCD instance, with controller.enabled: false and argoCDAgent.principal.enabled: true)
+#   - PKI must be initialized (CA secret "argocd-agent-ca" in the principal namespace
+#     with tls.crt and tls.key)
+#   - The principal's gRPC route must be accessible from spoke clusters
+#
+# Example:
+#   argocdAgent:
+#     enabled: "true"
+#     principalNamespace: "argocd-agent-principal"
+#     principalServer: "https://argocd-agent-principal-server-argocd-agent-principal.apps.hub.example.com"
+#     agentMode: "managed"
+#     agentName: ""
+
+agentClusterInstall:
+  apiVIP: "192.168.107.10"
+  ingressVIP: "192.168.107.11"
+  imageSetRef: img4.22.3-x86-64-appsub
+
+  installConfigOverrides:
+    cpuPartitioningMode: "AllNodes"
+    capabilities:
+      baselineCapabilitySet: "None"
+      additionalEnabledCapabilities:
+        - "baremetal"
+        - "Console"
+        - "Storage"
+        - "Ingress"
+        - "NodeTuning"
+        - "OperatorLifecycleManager"
+        - "marketplace"
+        - "CSISnapshot"
+
+  networking:
+    clusterNetwork:
+      - cidr: 10.128.0.0/14
+        hostPrefix: 23
+    serviceNetwork:
+      - 172.30.0.0/16
+
+  provisionRequirements:
+    controlPlaneAgents: 3
+    workerAgents: 0
+
+infraEnv:
+  kernelArguments:
+    - operation: append
+      value: "console=ttyS0,115200n8"
+
+clusterManifests:
+  99-master-kargs.yaml: |
+    apiVersion: machineconfiguration.openshift.io/v1
+    kind: MachineConfig
+    metadata:
+      labels:
+        machineconfiguration.openshift.io/role: "master"
+      name: 99-master-kargs
+    spec:
+      kernelArguments:
+        - console=ttyS0,115200n8
+
+  99-wipe-secondary-disks-by-wwn.yaml: |
+    apiVersion: machineconfiguration.openshift.io/v1
+    kind: MachineConfig
+    metadata:
+      labels:
+        machineconfiguration.openshift.io/role: master
+      name: 99-wipe-secondary-disks-by-wwn
+    spec:
+      config:
+        ignition:
+          version: 3.4.0
+        systemd:
+          units:
+            - contents: |
+                [Unit]
+                Description=Wipe Secondary Drive by WWN
+                Before=kubelet.service
+                ConditionFirstBoot=yes
+
+                [Service]
+                Type=oneshot
+                RemainAfterExit=yes
+                # The script dynamically searches for the WWNs and wipes the one it finds locally
+                ExecStart=/bin/bash -c '\
+                  TARGETS=(\
+                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73ce5" \
+                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73d25" \
+                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73f35" \
+                  ); \
+                  for dev in "$${TARGETS[@]}"; do \
+                    if [ -b "$$dev" ]; then \
+                      echo "Found matching secondary drive at $$dev, executing wipe..."; \
+                      sgdisk --zap-all "$$dev"; \
+                      wipefs -a "$$dev"; \
+                    fi; \
+                  done'
+
+                [Install]
+                WantedBy=multi-user.target
+              enabled: true
+              name: wipe-secondary-disk.service
+
+nodes:
+  - name: snuc0
+    bmcAddress: redfish-virtualmedia+https://192.168.101.12/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "root"
+      password: ""
+    bootMACAddress: "00:00:01:04:0c:e1"
+    hostname: "snuc0.compact-acp.basementinnovation.center"
+    role: "master"
+    rootDeviceWWN: "eui.00000000000000000026b768710ab495"
+    network:
+      interface: enp2s0
+      macAddress: "00:00:01:04:0c:e1"
+      ipv4:
+        address: "192.168.107.3"
+        prefixLength: 24
+      gateway: "192.168.107.1"
+      dns:
+        - "192.168.107.1"
+
+  - name: snuc1
+    bmcAddress: redfish-virtualmedia+https://192.168.101.10/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "root"
+      password: ""
+    bootMACAddress: "00:00:01:04:0c:d9"
+    hostname: "snuc1.compact-acp.basementinnovation.center"
+    role: "master"
+    rootDeviceWWN: "eui.00000000000000000026b768710aab15"
+    network:
+      interface: enp2s0
+      macAddress: "00:00:01:04:0c:d9"
+      ipv4:
+        address: "192.168.107.4"
+        prefixLength: 24
+      gateway: "192.168.107.1"
+      dns:
+        - "192.168.107.1"
+
+  - name: snuc2
+    bmcAddress: redfish-virtualmedia+https://192.168.101.11/redfish/v1/Systems/system
+    bmcCredentials:
+      username: "root"
+      password: ""
+    bootMACAddress: "00:00:01:04:18:f9"
+    hostname: "snuc2.compact-acp.basementinnovation.center"
+    role: "master"
+    rootDeviceWWN: "eui.00000000000000000026b768710aaeb5"
+    network:
+      interface: enp2s0
+      macAddress: "00:00:01:04:18:f9"
+      ipv4:
+        address: "192.168.107.5"
+        prefixLength: 24
+      gateway: "192.168.107.1"
+      dns:
+        - "192.168.107.1"

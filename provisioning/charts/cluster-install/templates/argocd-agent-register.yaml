@@ -1,0 +1,349 @@
+{{- if and .Values.argocdAgent (eq (.Values.argocdAgent.enabled | default "false" | toString) "true") }}
+{{- $agentName := .Values.argocdAgent.agentName | default .Values.clusterName }}
+{{- $principalNs := .Values.argocdAgent.principalNamespace }}
+{{- $principalServer := .Values.argocdAgent.principalServer }}
+{{- $agentMode := .Values.argocdAgent.agentMode | default "managed" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterName }}-argocd-agent
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.clusterName }}-argocd-agent
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["extensions.hive.openshift.io"]
+    resources: ["agentclusterinstalls"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.clusterName }}-argocd-agent
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.clusterName }}-argocd-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.clusterName }}-argocd-agent
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.clusterName }}-argocd-agent
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "argocd.argoproj.io/sync-wave": "5"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Values.clusterName }}-argocd-agent
+    spec:
+      serviceAccountName: {{ .Values.clusterName }}-argocd-agent
+      restartPolicy: Never
+      containers:
+        - name: argocd-agent-register
+          image: "registry.redhat.io/openshift4/ose-cli:latest"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_NAME
+              value: {{ $agentName | quote }}
+            - name: CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            - name: CLUSTER_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            - name: PRINCIPAL_NAMESPACE
+              value: {{ $principalNs | quote }}
+            - name: PRINCIPAL_SERVER
+              value: {{ $principalServer | quote }}
+            - name: AGENT_MODE
+              value: {{ $agentMode | quote }}
+            - name: REGISTRATION_MODE
+              value: {{ .Values.registrationMode | default "push" | quote }}
+          command: ["/bin/bash"]
+          args:
+            - -exc
+            - |
+              echo "=== ArgoCD Agent Registration for $AGENT_NAME ==="
+
+              # --- Step 1: Read CA cert and key from principal namespace ---
+              echo "Reading CA from secret argocd-agent-ca in namespace $PRINCIPAL_NAMESPACE..."
+              ca_crt="$(oc get secret argocd-agent-ca -n "$PRINCIPAL_NAMESPACE" -o jsonpath='{.data.tls\.crt}' | base64 -d)"
+              ca_key="$(oc get secret argocd-agent-ca -n "$PRINCIPAL_NAMESPACE" -o jsonpath='{.data.tls\.key}' | base64 -d)"
+
+              if [ -z "$ca_crt" ] || [ -z "$ca_key" ]; then
+                echo "ERROR: Could not read CA cert/key from argocd-agent-ca in $PRINCIPAL_NAMESPACE"
+                exit 1
+              fi
+              echo "CA certificate loaded successfully"
+
+              # Write CA files for openssl
+              echo "$ca_crt" > /tmp/ca.crt
+              echo "$ca_key" > /tmp/ca.key
+
+              # --- Step 2: Generate client certificate for this agent ---
+              echo "Generating client certificate with CN=$AGENT_NAME..."
+              openssl genrsa -out /tmp/client.key 4096 2>/dev/null
+              openssl req -new -key /tmp/client.key -subj "/CN=$AGENT_NAME" -out /tmp/client.csr 2>/dev/null
+              openssl x509 -req -in /tmp/client.csr \
+                -CA /tmp/ca.crt -CAkey /tmp/ca.key -CAcreateserial \
+                -out /tmp/client.crt -days 365 -sha256 2>/dev/null
+              echo "Client certificate generated successfully"
+
+              # Base64-encode for embedding in secrets
+              ca_crt_b64="$(base64 -w0 /tmp/ca.crt)"
+              client_crt_b64="$(base64 -w0 /tmp/client.crt)"
+              client_key_b64="$(base64 -w0 /tmp/client.key)"
+
+              # --- Step 3: Create agent namespace on hub ---
+              echo "Creating agent namespace $AGENT_NAME on hub..."
+              oc create namespace "$AGENT_NAME" --dry-run=client -o yaml | oc apply -f- || true
+
+              # --- Step 4: Create cluster secret in principal namespace ---
+              echo "Creating cluster secret cluster-$AGENT_NAME in $PRINCIPAL_NAMESPACE..."
+              cat <<HUBEOF | oc apply -f-
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: cluster-$AGENT_NAME
+                namespace: $PRINCIPAL_NAMESPACE
+                labels:
+                  argocd.argoproj.io/secret-type: cluster
+              type: Opaque
+              stringData:
+                name: "$AGENT_NAME"
+                server: "argocd-agent://$AGENT_NAME"
+              HUBEOF
+
+              # --- Step 5: Build spoke-side manifests ConfigMap ---
+              echo "Building spoke-side manifests ConfigMap..."
+              OPENSHIFT_TOOLS_IMAGE="registry.redhat.io/openshift4/ose-cli:latest"
+
+              cat <<CMEOF | oc apply -f-
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: ${CLUSTER_NAME}-argocd-agent-manifests
+                namespace: $CLUSTER_NAMESPACE
+              data:
+                argocd-agent-ns.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: $AGENT_NAME
+                argocd-agent-subscription.yaml: |
+                  ---
+                  apiVersion: operators.coreos.com/v1alpha1
+                  kind: Subscription
+                  metadata:
+                    name: openshift-gitops-operator
+                    namespace: openshift-operators
+                  spec:
+                    channel: latest
+                    installPlanApproval: Automatic
+                    name: openshift-gitops-operator
+                    source: redhat-operators
+                    sourceNamespace: openshift-marketplace
+                argocd-agent-ca.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: argocd-agent-ca
+                    namespace: $AGENT_NAME
+                  type: kubernetes.io/tls
+                  data:
+                    tls.crt: $ca_crt_b64
+                    tls.key: ""
+                argocd-agent-client-tls.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: argocd-agent-client-tls
+                    namespace: $AGENT_NAME
+                  type: kubernetes.io/tls
+                  data:
+                    tls.crt: $client_crt_b64
+                    tls.key: $client_key_b64
+                argocd-agent-setup-sa.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: argocd-agent-setup
+                    namespace: $AGENT_NAME
+                argocd-agent-setup-rbac.yaml: |
+                  ---
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: ClusterRoleBinding
+                  metadata:
+                    name: argocd-agent-setup
+                  roleRef:
+                    apiGroup: rbac.authorization.k8s.io
+                    kind: ClusterRole
+                    name: cluster-admin
+                  subjects:
+                  - kind: ServiceAccount
+                    name: argocd-agent-setup
+                    namespace: $AGENT_NAME
+                argocd-agent-setup-config.yaml: |
+                  ---
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: argocd-agent-setup-config
+                    namespace: $AGENT_NAME
+                  data:
+                    agentName: "$AGENT_NAME"
+                    principalServer: "$PRINCIPAL_SERVER"
+                    agentMode: "$AGENT_MODE"
+                argocd-agent-setup-job.yaml: |
+                  ---
+                  apiVersion: batch/v1
+                  kind: Job
+                  metadata:
+                    name: argocd-agent-setup
+                    namespace: $AGENT_NAME
+                  spec:
+                    backoffLimit: 10
+                    template:
+                      spec:
+                        serviceAccount: argocd-agent-setup
+                        serviceAccountName: argocd-agent-setup
+                        restartPolicy: Never
+                        initContainers:
+                          - name: wait-for-gitops-operator
+                            image: $OPENSHIFT_TOOLS_IMAGE
+                            imagePullPolicy: IfNotPresent
+                            command: ["/bin/bash"]
+                            args:
+                              - -xc
+                              - |
+                                echo "Waiting for openshift-gitops-operator CRDs..."
+                                while ! oc get crd argocds.argoproj.io >/dev/null 2>&1; do
+                                  echo "  CRD argocds.argoproj.io not found, waiting..."
+                                  sleep 15
+                                done
+                                echo "GitOps operator CRDs are available"
+                          - name: wait-for-operators
+                            image: $OPENSHIFT_TOOLS_IMAGE
+                            imagePullPolicy: IfNotPresent
+                            command: ["/bin/bash"]
+                            args:
+                              - -xc
+                              - oc wait --all --for=condition=Available=True --for=condition=Progressing=False --for=condition=Degraded=False clusteroperators.config.openshift.io --timeout=120m
+                        containers:
+                          - name: setup-agent
+                            image: $OPENSHIFT_TOOLS_IMAGE
+                            imagePullPolicy: IfNotPresent
+                            command: ["/bin/bash"]
+                            args:
+                              - -xc
+                              - |
+                                AGENT_NAME=\$(oc get configmap argocd-agent-setup-config -n \$AGENT_NS -o jsonpath='{.data.agentName}')
+                                PRINCIPAL_SERVER=\$(oc get configmap argocd-agent-setup-config -n \$AGENT_NS -o jsonpath='{.data.principalServer}')
+                                AGENT_MODE=\$(oc get configmap argocd-agent-setup-config -n \$AGENT_NS -o jsonpath='{.data.agentMode}')
+
+                                echo "Creating ArgoCD instance for agent \$AGENT_NAME..."
+                                cat <<ARGOEOF | oc apply -f-
+                                apiVersion: argoproj.io/v1beta1
+                                kind: ArgoCD
+                                metadata:
+                                  name: argocd-agent
+                                  namespace: \$AGENT_NAME
+                                spec:
+                                  server:
+                                    enabled: false
+                                  argoCDAgent:
+                                    agent:
+                                      enabled: true
+                                      client:
+                                        server: "\$PRINCIPAL_SERVER"
+                                ARGOEOF
+
+                                echo "Waiting for ArgoCD Redis to be ready..."
+                                while ! oc get pod -n \$AGENT_NAME -l app.kubernetes.io/name=argocd-agent-redis --no-headers 2>/dev/null | grep -q Running; do
+                                  sleep 5
+                                done
+
+                                echo "Creating NetworkPolicy for Redis..."
+                                cat <<NPEOF | oc apply -f-
+                                apiVersion: networking.k8s.io/v1
+                                kind: NetworkPolicy
+                                metadata:
+                                  name: argocd-agent-redis-policy
+                                  namespace: \$AGENT_NAME
+                                spec:
+                                  podSelector:
+                                    matchLabels:
+                                      app.kubernetes.io/name: argocd-agent-redis
+                                  ingress:
+                                    - ports:
+                                        - protocol: TCP
+                                          port: 6379
+                                      from:
+                                        - podSelector:
+                                            matchLabels:
+                                              app.kubernetes.io/name: argocd-agent-agent
+                                  policyTypes:
+                                    - Ingress
+                                NPEOF
+
+                                echo "ArgoCD agent setup complete for \$AGENT_NAME"
+                            env:
+                              - name: AGENT_NS
+                                valueFrom:
+                                  fieldRef:
+                                    fieldPath: metadata.namespace
+              CMEOF
+
+              # --- Step 6: Patch ACI to append manifests ConfigMap ---
+              echo "Patching AgentClusterInstall to add argocd-agent manifests..."
+              for aci in $(oc get agentclusterinstall -n "$CLUSTER_NAMESPACE" -oname); do
+                existing_refs="$(oc get "$aci" -n "$CLUSTER_NAMESPACE" -ojsonpath='{.spec.manifestsConfigMapRefs[*].name}')"
+                configmap_name="${CLUSTER_NAME}-argocd-agent-manifests"
+
+                if [[ " $existing_refs " =~ " $configmap_name " ]]; then
+                  echo "$aci already references $configmap_name, skipping patch"
+                else
+                  # In push mode (no pull-mode update-manifests Job), also release holdInstallation
+                  if [ "$REGISTRATION_MODE" != "pull" ]; then
+                    oc patch "$aci" -n "$CLUSTER_NAMESPACE" --type=json -p '[
+                      {"op": "add", "path": "/spec/manifestsConfigMapRefs/-", "value": {"name": "'$configmap_name'"}},
+                      {"op": "replace", "path": "/spec/holdInstallation", "value": false}
+                    ]'
+                    echo "Successfully patched $aci (added manifests + released holdInstallation)"
+                  else
+                    oc patch "$aci" -n "$CLUSTER_NAMESPACE" --type=json -p '[
+                      {"op": "add", "path": "/spec/manifestsConfigMapRefs/-", "value": {"name": "'$configmap_name'"}}
+                    ]'
+                    echo "Successfully patched $aci (added manifests, holdInstallation managed by update-manifests)"
+                  fi
+                fi
+              done
+
+              echo "=== ArgoCD agent registration complete ==="
+{{- end }}

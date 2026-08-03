@@ -17,6 +17,25 @@ metadata:
 {{- end }}
           ]
         }
+{{- if .Values.agentClusterInstall.installConfigOverrides.imageDigestSources }},
+        "imageDigestSources": [
+{{- $lastSource := sub (len .Values.agentClusterInstall.installConfigOverrides.imageDigestSources) 1 }}
+{{- range $i, $source := .Values.agentClusterInstall.installConfigOverrides.imageDigestSources }}
+          {
+            "source": {{ $source.source | quote }},
+            "mirrors": [
+{{- $lastMirror := sub (len $source.mirrors) 1 }}
+{{- range $j, $mirror := $source.mirrors }}
+              {{ $mirror | quote }}{{ if ne $j $lastMirror }},{{ end }}
+{{- end }}
+            ]
+          }{{ if ne $i $lastSource }},{{ end }}
+{{- end }}
+        ]
+{{- end }}
+{{- if .Values.agentClusterInstall.installConfigOverrides.additionalTrustBundle }},
+        "additionalTrustBundle": {{ .Values.agentClusterInstall.installConfigOverrides.additionalTrustBundle | quote }}
+{{- end }}
       }
 spec:
 {{- $totalAgents := add .Values.agentClusterInstall.provisionRequirements.controlPlaneAgents .Values.agentClusterInstall.provisionRequirements.workerAgents }}
@@ -28,7 +47,7 @@ spec:
     name: {{ .Values.clusterName }}
   imageSetRef:
     name: {{ .Values.agentClusterInstall.imageSetRef }}
-{{- if eq .Values.registrationMode "pull" }}
+{{- if or (eq .Values.registrationMode "pull") (and .Values.argocdAgent (eq (.Values.argocdAgent.enabled | default "false" | toString) "true")) }}
   holdInstallation: true
 {{- end }}
   manifestsConfigMapRefs:
