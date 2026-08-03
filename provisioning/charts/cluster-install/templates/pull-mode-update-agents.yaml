@@ -6,14 +6,14 @@ metadata:
   name: {{ .Values.clusterName }}-update-agents
   namespace: {{ .Values.namespace }}
   annotations:
-    "argocd.argoproj.io/sync-wave": "3"
+    "argocd.argoproj.io/sync-wave": "5"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ .Values.clusterName }}-update-agents
   annotations:
-    "argocd.argoproj.io/sync-wave": "3"
+    "argocd.argoproj.io/sync-wave": "5"
 rules:
   - apiGroups: ["agent-install.openshift.io"]
     resources: ["agents"]
@@ -27,7 +27,7 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ .Values.clusterName }}-update-agents
   annotations:
-    "argocd.argoproj.io/sync-wave": "3"
+    "argocd.argoproj.io/sync-wave": "5"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -43,7 +43,7 @@ metadata:
   name: {{ .Values.clusterName }}-update-agents
   namespace: {{ .Values.namespace }}
   annotations:
-    "argocd.argoproj.io/sync-wave": "3"
+    "argocd.argoproj.io/sync-wave": "5"
 spec:
   backoffLimit: 10
   template:
