@@ -30,3 +30,19 @@ metadata:
 spec:
   installNamespace: open-cluster-management-agent-addon
 {{- end }}
+{{- $hubTemplatingEnabled := false }}
+{{- if hasKey .Values "addons" }}
+{{- if hasKey .Values.addons "governanceStandaloneHubTemplating" }}
+{{- $hubTemplatingEnabled = .Values.addons.governanceStandaloneHubTemplating }}
+{{- end }}
+{{- end }}
+{{- if $hubTemplatingEnabled }}
+---
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ManagedClusterAddOn
+metadata:
+  name: governance-standalone-hub-templating
+  namespace: {{ .Values.namespace }}
+spec:
+  installNamespace: open-cluster-management-agent-addon
+{{- end }}

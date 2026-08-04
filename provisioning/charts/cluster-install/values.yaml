@@ -111,6 +111,10 @@ addons:
   governancePolicyFramework: true
   # Config Policy Controller - enables configuration policy enforcement
   configPolicyController: true
+  # Governance Standalone Hub Templating - enables hub-side policy template
+  # resolution on the managed cluster, allowing policies to reference hub
+  # resources (e.g., secrets, configmaps) without syncing them to the spoke
+  governanceStandaloneHubTemplating: false
 
 # ManagedCluster Labels
 # Custom labels to apply to the ManagedCluster resource

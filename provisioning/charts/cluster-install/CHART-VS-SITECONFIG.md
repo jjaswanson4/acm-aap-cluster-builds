@@ -78,7 +78,7 @@ flowchart TD
 | BareMetalHost | Yes | Yes | Via templates |
 | NMStateConfig | Yes | Yes | Via templates |
 | ManagedCluster | Yes (pull mode) | Yes | Chart creates it only in pull mode; SiteConfig always creates it |
-| ManagedClusterAddOns | Yes | No | Chart deploys governance-policy-framework + config-policy-controller |
+| ManagedClusterAddOns | Yes | No | Chart deploys governance-policy-framework, config-policy-controller, and optionally governance-standalone-hub-templating |
 | ManagedClusterSet | Yes | No | Chart auto-creates if missing, with `keep` policy |
 | ManagedClusterSetBinding | Yes | No | Chart binds namespace to cluster set |
 | ClusterCurator (AAP) | Yes | No | Chart integrates with AAP for prehook automation |

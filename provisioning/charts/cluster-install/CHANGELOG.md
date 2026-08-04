@@ -13,6 +13,11 @@ All notable changes to this Helm chart are documented in this file.
 - MachineConfig resources for chrony are generated automatically — no post-install configuration needed
 - Optional: omit or leave empty to use DHCP-provided NTP only
 
+#### Governance Standalone Hub Templating Add-on
+- Added `addons.governanceStandaloneHubTemplating` to deploy the `governance-standalone-hub-templating` ManagedClusterAddOn on provisioned clusters
+- Enables hub-side policy template resolution, allowing policies to reference hub resources (secrets, configmaps) without syncing them to the spoke
+- Default: `false` (disabled) — set to `true` to enable
+
 #### Proxy Configuration
 - Added `agentClusterInstall.installConfigOverrides.proxy` for cluster-wide HTTP/HTTPS proxy settings
 - Supports `httpProxy`, `httpsProxy`, and `noProxy` fields
