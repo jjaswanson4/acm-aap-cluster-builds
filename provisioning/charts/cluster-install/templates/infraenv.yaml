@@ -16,6 +16,12 @@ spec:
       - operation: {{ .operation }}
         value: {{ .value | quote }}
 {{- end }}
+{{- if .Values.infraEnv.additionalNTPSources }}
+  additionalNTPSources:
+{{- range .Values.infraEnv.additionalNTPSources }}
+    - {{ . | quote }}
+{{- end }}
+{{- end }}
   nmStateConfigLabelSelector:
     matchLabels:
       infraenvs.agent-install.openshift.io: {{ .Values.clusterName | quote }}
