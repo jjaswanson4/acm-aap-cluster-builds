@@ -45,4 +45,35 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   installNamespace: open-cluster-management-agent-addon
+{{- if .Values.addons.hubTemplatingSecretAccess }}
+{{- range .Values.addons.hubTemplatingSecretAccess }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: governance-hub-templating-secret-reader
+  namespace: {{ .namespace }}
+  annotations:
+    "helm.sh/resource-policy": keep
+    "argocd.argoproj.io/sync-options": "Prune=false"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: governance-hub-templating-{{ $.Values.clusterName }}
+  namespace: {{ .namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: governance-hub-templating-secret-reader
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:open-cluster-management:cluster:{{ $.Values.clusterName }}:addon:governance-standalone-hub-templating:agent:governance-standalone-hub-templating"
+{{- end }}
+{{- end }}
 {{- end }}

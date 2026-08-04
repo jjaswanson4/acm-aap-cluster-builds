@@ -115,6 +115,20 @@ addons:
   # resolution on the managed cluster, allowing policies to reference hub
   # resources (e.g., secrets, configmaps) without syncing them to the spoke
   governanceStandaloneHubTemplating: false
+  # Hub Templating Secret Access - grants the hub-templating agent for this
+  # cluster read access to secrets in the specified namespaces on the hub.
+  # Requires governanceStandaloneHubTemplating: true.
+  #
+  # Creates a Role (get/list/watch secrets) and a per-cluster RoleBinding in
+  # each listed namespace. The Role uses a keep/Prune=false policy so it
+  # persists when individual clusters are removed.
+  #
+  # Common use case: allow governance policies to template in ACS init-bundle
+  # secrets from the stackrox namespace for automatic cluster registration.
+  #
+  # Example:
+  #   hubTemplatingSecretAccess:
+  #     - namespace: stackrox
 
 # ManagedCluster Labels
 # Custom labels to apply to the ManagedCluster resource

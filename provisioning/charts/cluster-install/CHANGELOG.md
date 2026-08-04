@@ -17,6 +17,9 @@ All notable changes to this Helm chart are documented in this file.
 - Added `addons.governanceStandaloneHubTemplating` to deploy the `governance-standalone-hub-templating` ManagedClusterAddOn on provisioned clusters
 - Enables hub-side policy template resolution, allowing policies to reference hub resources (secrets, configmaps) without syncing them to the spoke
 - Default: `false` (disabled) — set to `true` to enable
+- Added `addons.hubTemplatingSecretAccess` to grant the hub-templating agent read access to secrets in specified hub namespaces
+- Creates a shared Role (with `keep` policy) and a per-cluster RoleBinding in each listed namespace
+- Common use case: allow governance policies to template in ACS init-bundle secrets from the `stackrox` namespace
 
 #### Proxy Configuration
 - Added `agentClusterInstall.installConfigOverrides.proxy` for cluster-wide HTTP/HTTPS proxy settings
