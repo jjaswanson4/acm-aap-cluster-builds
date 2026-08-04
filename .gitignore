@@ -5,3 +5,11 @@ tmp/
 *.tar.gz
 PROGRESS*
 bin/
+install/
+setup/
+.claude
+manifests/
+collections/
+requirements.txt
+blog-post*
+hold.json
