@@ -181,10 +181,21 @@ agentClusterInstall:
     controlPlaneAgents: 3
     workerAgents: 0
 
+# InfraEnv Configuration
+# Controls the discovery ISO and agent boot settings
 infraEnv:
   kernelArguments:
     - operation: append
       value: "console=ttyS0,115200n8"
+
+  # Additional NTP Sources
+  # NTP server hostnames or IPs to configure on cluster nodes via chrony.
+  # These are merged with any NTP servers provided by DHCP (option 42).
+  # The Assisted Service generates MachineConfig resources for chrony automatically.
+  # Example:
+  #   additionalNTPSources:
+  #     - "192.168.107.1"
+  #     - "0.rhel.pool.ntp.org"
 
 clusterManifests:
   99-master-kargs.yaml: |
