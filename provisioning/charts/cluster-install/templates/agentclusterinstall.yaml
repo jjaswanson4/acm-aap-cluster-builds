@@ -36,6 +36,13 @@ metadata:
 {{- if .Values.agentClusterInstall.installConfigOverrides.additionalTrustBundle }},
         "additionalTrustBundle": {{ .Values.agentClusterInstall.installConfigOverrides.additionalTrustBundle | quote }}
 {{- end }}
+{{- if .Values.agentClusterInstall.installConfigOverrides.proxy }},
+        "proxy": {
+          "httpProxy": {{ .Values.agentClusterInstall.installConfigOverrides.proxy.httpProxy | default "" | quote }},
+          "httpsProxy": {{ .Values.agentClusterInstall.installConfigOverrides.proxy.httpsProxy | default "" | quote }},
+          "noProxy": {{ .Values.agentClusterInstall.installConfigOverrides.proxy.noProxy | default "" | quote }}
+        }
+{{- end }}
       }
 spec:
 {{- $totalAgents := add .Values.agentClusterInstall.provisionRequirements.controlPlaneAgents .Values.agentClusterInstall.provisionRequirements.workerAgents }}

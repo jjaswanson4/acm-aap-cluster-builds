@@ -50,6 +50,17 @@ baremetalHostPaused: "true"
 #   redeploy. The IPA ramdisk used for cleaning does NOT support custom kernel arguments.
 # baremetalHostAutomatedCleaningMode: "disabled"
 
+# BareMetalHost boot mode
+# Controls the boot mode set on BareMetalHost resources.
+# Can be set globally here or per-node (per-node value takes precedence).
+# Options:
+#   "UEFI"           - Standard UEFI boot (default)
+#   "UEFISecureBoot" - UEFI with Secure Boot enabled
+#   "legacy"         - Legacy BIOS boot
+# Default: "UEFI"
+# Per-node override: set bootMode on individual nodes in the nodes array
+# baremetalHostBootMode: "UEFI"
+
 # BareMetalHost resource policy on helm uninstall
 # When set to "keep", BareMetalHost resources are preserved during helm uninstall
 # When set to "delete" (or any other value), BareMetalHost resources are deleted during helm uninstall
@@ -169,6 +180,16 @@ agentClusterInstall:
         - "OperatorLifecycleManager"
         - "marketplace"
         - "CSISnapshot"
+
+  # Proxy Configuration
+  # Configure cluster-wide HTTP/HTTPS proxy for nodes that require proxy access
+  # to reach external registries or the internet. Rendered into install-config-overrides.
+  # All three fields are optional — omit the entire block if no proxy is needed.
+  # Example:
+  #   proxy:
+  #     httpProxy: "http://proxy.example.com:3128"
+  #     httpsProxy: "http://proxy.example.com:3128"
+  #     noProxy: ".example.com,10.128.0.0/14,172.30.0.0/16,192.168.0.0/16"
 
   networking:
     clusterNetwork:

@@ -28,6 +28,7 @@ spec:
     credentialsName: {{ .name }}-bmc
     disableCertificateVerification: {{ $.Values.baremetalHostDisableCertificateVerification | default true }}
   automatedCleaningMode: {{ $.Values.baremetalHostAutomatedCleaningMode | default "disabled" }}
+  bootMode: {{ .bootMode | default $.Values.baremetalHostBootMode | default "UEFI" }}
   online: {{ $.Values.baremetalHostOnline | default true }}
   rootDeviceHints:
     wwn: {{ .rootDeviceWWN }}

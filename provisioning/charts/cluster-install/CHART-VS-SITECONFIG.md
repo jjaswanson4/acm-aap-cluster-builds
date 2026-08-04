@@ -90,6 +90,9 @@ flowchart TD
 | cpuPartitioningMode | Yes (structured) | Yes (JSON string) |
 | capabilities.baselineCapabilitySet | Yes (structured) | Yes (JSON string) |
 | capabilities.additionalEnabledCapabilities | Yes (structured) | Yes (JSON string) |
+| proxy (httpProxy/httpsProxy/noProxy) | Yes (structured) | Yes |
+| additionalTrustBundle | Yes (structured) | Yes |
+| imageDigestSources (disconnected) | Yes (structured) | Yes |
 | networkType | Via AgentClusterInstall | Yes |
 
 The chart uses structured values that are rendered into the `agent-install.openshift.io/install-config-overrides` annotation on AgentClusterInstall. SiteConfig exposes this as a special template variable (`installConfigOverrides`) that merges networkType, cpuPartitioningMode, and the overrides JSON into a single field.
@@ -106,6 +109,7 @@ The chart uses structured values that are rendered into the `agent-install.opens
 | automatedCleaningMode | Yes (default: disabled) | Yes |
 | rootDeviceHints | Yes (by WWN) | Yes (by WWN or deviceName) |
 | bootMACAddress | Yes | Yes |
+| bootMode (UEFI/UEFISecureBoot/legacy) | Yes (global + per-node) | Yes |
 | Inspection toggle | Yes (`inspect.metal3.io` annotation) | Yes (`ironicInspect`) |
 | Deploy TLS certs to BMCs | **Yes** | No |
 | Reset BMCs pre-install | **Yes** | No |
@@ -229,16 +233,17 @@ SiteConfig has the advantage here -- the operator continuously reconciles, so ad
 | Deployment status | Via individual resource status | **Yes** (unified ClusterInstance status) |
 | Continuous drift detection | ArgoCD (if used) | **Yes** (operator reconciliation) |
 
-### Additional SiteConfig Features
+### Additional Features
 
 | Feature | Helm Chart | SiteConfig Operator |
 |---|:---:|:---:|
-| Proxy configuration | No | **Yes** (`spec.proxy`) |
-| CA bundle reference | No | **Yes** (`spec.caBundleRef`) |
-| Additional NTP sources | No | **Yes** (`spec.additionalNTPSources`) |
+| Proxy configuration | **Yes** (`installConfigOverrides.proxy`) | **Yes** (`spec.proxy`) |
+| CA bundle / additional trust | **Yes** (`installConfigOverrides.additionalTrustBundle`) | **Yes** (`spec.caBundleRef`) |
+| Additional NTP sources | **Yes** (`infraEnv.additionalNTPSources`) | **Yes** (`spec.additionalNTPSources`) |
+| bootMode (UEFI / UEFISecureBoot / legacy) | **Yes** (global + per-node) | **Yes** |
+| Image digest sources (disconnected) | **Yes** (`installConfigOverrides.imageDigestSources`) | **Yes** |
 | Image Based Install (IBI) | No | **Yes** (separate template set) |
 | Custom template sets | N/A (Helm is the template) | **Yes** (multiple ConfigMap template sets) |
-| bootMode: UEFISecureBoot | No | **Yes** |
 | Multiple installation methods | No (Assisted Installer only) | **Yes** (AI, IBI, custom) |
 
 ---
@@ -261,9 +266,7 @@ SiteConfig has the advantage here -- the operator continuously reconciles, so ad
 - **Day-2 node operations are frequent**: Adding/removing worker nodes is a CR edit, not a full re-deploy.
 - **You need multiple installation methods**: SiteConfig supports Assisted Installer and Image Based Install with swappable template sets. The chart only does AI.
 - **Continuous reconciliation is important**: The operator watches for drift and updates status automatically. Helm is fire-and-forget unless paired with ArgoCD.
-- **Proxy, CA bundles, or NTP are required**: SiteConfig has first-class fields for these. The chart would need extra manifests or values additions.
 - **You want a supported Red Hat product path**: SiteConfig is the strategic direction for ACM cluster provisioning (SiteConfig v1/kustomize is deprecated in OCP 4.18+).
-- **UEFISecureBoot is needed**: SiteConfig supports it natively.
 
 ### Hybrid Approach
 
@@ -300,7 +303,7 @@ quadrantChart
 | Validation/dry-run | Helm lint | Operator dry-run | **SiteConfig** |
 | Status/observability | Per-resource | Unified CR status | **SiteConfig** |
 | Fleet scale | Per-cluster values | Template reuse + operator | **SiteConfig** |
-| Proxy/CA/NTP | Not built-in | First-class fields | **SiteConfig** |
+| Proxy/CA/NTP | Structured values in installConfigOverrides + InfraEnv | First-class CR fields | **Tie** |
 | Red Hat support path | Community/custom | Product (ACM 2.12+) | **SiteConfig** |
 | Simplicity for 1-5 clusters | Single values.yaml | CR + Secrets + ConfigMaps | **Chart** |
 
