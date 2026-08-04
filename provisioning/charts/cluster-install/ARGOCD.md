@@ -32,6 +32,7 @@ Resources are created in order using ArgoCD sync waves:
 | 3 | update-agents Job + RBAC (pull mode) | Patch agents with hostnames/roles |
 | 4 | configure-bmc-boot Job + RBAC | Eject media, set boot to HDD+UEFI |
 | 5 | update-manifests Job + RBAC (pull mode) | Create import manifests, release holdInstallation |
+| 5 | argocd-agent-register Job + RBAC (argocdAgent) | Enroll spoke with ArgoCD principal via mTLS |
 
 Between waves 2 and 3, Ironic/BMO automatically powers on nodes and mounts the discovery ISO. Agents boot and register with the hub.
 
@@ -63,6 +64,8 @@ kind: Application
 metadata:
   name: my-cluster
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -83,6 +86,9 @@ spec:
     automated:
       prune: false
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
 ```
 
 ### Option 2: Helm Repository Source
@@ -93,6 +99,8 @@ kind: Application
 metadata:
   name: my-cluster
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -105,6 +113,64 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: my-cluster
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+```
+
+## Application Finalizer
+
+Add the `resources-finalizer.argocd.argoproj.io` finalizer to ensure ArgoCD cascade-deletes all managed resources (namespaced and cluster-scoped) when the Application is deleted. Without this finalizer, deleting the Application only removes the Application object itself — the deployed cluster resources, Jobs, ClusterRoles, ClusterRoleBindings, and namespace are left behind and must be cleaned up manually.
+
+```yaml
+metadata:
+  name: my-cluster
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+```
+
+## Cleaning Up / Deleting a Cluster
+
+Deleting the ArgoCD Application with the resources finalizer removes most resources, but two categories require manual cleanup:
+
+**1. ManagedCluster (cluster-scoped, created by ACM)**
+
+ACM's import controller creates and owns the ManagedCluster resource — ArgoCD does not manage it, so the finalizer won't delete it. The ManagedCluster has its own ACM finalizers that keep the namespace alive until processed. Delete it explicitly:
+
+```bash
+oc delete managedcluster my-cluster
+```
+
+**2. Cluster-scoped RBAC from PreSync hooks**
+
+ClusterRoles and ClusterRoleBindings created by PreSync hooks (reset-bmcs, configure-bmcs, update-agents) may not be tracked as managed resources if the sync didn't fully complete (e.g. due to errors during provisioning). Check for and remove any leftovers:
+
+```bash
+oc get clusterrole,clusterrolebinding | grep my-cluster
+oc delete clusterrole my-cluster-reset-bmcs my-cluster-configure-bmcs my-cluster-update-agents
+oc delete clusterrolebinding my-cluster-reset-bmcs my-cluster-configure-bmcs my-cluster-update-agents
+```
+
+**3. Namespace**
+
+The namespace is created by ArgoCD via `CreateNamespace=true`, not as a managed resource, so the finalizer won't delete it. After deleting the ManagedCluster (which holds finalizers on namespace resources), delete the namespace:
+
+```bash
+oc delete ns my-cluster
+```
+
+**Full teardown sequence:**
+
+```bash
+oc delete application.argoproj.io my-cluster -n openshift-gitops
+oc delete managedcluster my-cluster
+# Wait for ManagedCluster finalizers to clear, then:
+oc delete ns my-cluster
+# Clean up any leftover cluster-scoped resources:
+oc delete clusterrole,clusterrolebinding -l app.kubernetes.io/instance=my-cluster 2>/dev/null
+oc get clusterrole,clusterrolebinding | grep my-cluster  # verify none remain
 ```
 
 ## Recommended Sync Policy
@@ -115,8 +181,7 @@ syncPolicy:
     prune: false        # Don't auto-delete (recommended for clusters)
     selfHeal: true      # Auto-sync on drift
   syncOptions:
-    - CreateNamespace=false  # Chart creates namespace
-    - PruneLast=true         # Respect dependencies
+    - CreateNamespace=true   # ArgoCD creates namespace before PreSync hooks
     - RespectIgnoreDifferences=true
   retry:
     limit: 5
