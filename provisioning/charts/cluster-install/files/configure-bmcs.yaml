@@ -37,6 +37,36 @@
       loop_control:
         label: "{{ item.item.metadata.name }}"
 
+    - name: Discover Redfish manager endpoint
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Managers"
+        method: GET
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+      register: _managers_discovery
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Enrich host inventory with discovered Redfish paths
+      ansible.builtin.set_fact:
+        _bmc_hosts_discovered: "{{ (_bmc_hosts_discovered | default([])) + [_host] }}"
+      vars:
+        _host: >-
+          {{ _bmc_hosts[idx] | combine({
+            'manager_path': _managers_discovery.results[idx].json.Members[0]['@odata.id']
+          }) }}
+      loop: "{{ range(_bmc_hosts | length) | list }}"
+      loop_control:
+        loop_var: idx
+        label: "{{ _bmc_hosts[idx].name }}"
+
+    - name: Update host inventory with discovered paths
+      ansible.builtin.set_fact:
+        _bmc_hosts: "{{ _bmc_hosts_discovered }}"
+
     - name: Get OpenShift ingress CA
       kubernetes.core.k8s_info:
         api_version: v1
@@ -64,22 +94,45 @@
             | regex_findall('(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----')
           }}
 
-    - name: Inject certificates to each BMC
+    - name: Inject certificates to OpenBMC trust store
       ansible.builtin.uri:
-        url: "https://{{ item.0.address }}/redfish/v1/Managers/bmc/Truststore/Certificates"
+        url: "https://{{ item.0.address }}{{ item.0.manager_path }}/Truststore/Certificates"
         method: POST
         user: "{{ item.0.username }}"
         password: "{{ item.0.password }}"
         force_basic_auth: true
         validate_certs: false
-        status_code: [200, 201, 204, 500]
+        status_code: [200, 201, 204, 405, 500]
         body_format: json
         body:
           CertificateString: "{{ item.1 }}"
           CertificateType: "PEM"
-      loop: "{{ _bmc_hosts | product(_all_certificates) | list }}"
+      loop: "{{ _openbmc_hosts | product(_all_certificates) | list }}"
       loop_control:
         label: "{{ item.0.name }}"
+      vars:
+        _openbmc_hosts: "{{ _bmc_hosts | rejectattr('manager_path', 'search', 'iDRAC') | list }}"
+      when: (_bmc_hosts | rejectattr('manager_path', 'search', 'iDRAC') | list | length) > 0
+
+    - name: Inject certificates to Dell iDRAC trust store
+      ansible.builtin.uri:
+        url: "https://{{ item.0.address }}/redfish/v1/Dell{{ item.0.manager_path | regex_replace('^/redfish/v1', '') }}/DelliDRACCardService/Actions/DelliDRACCardService.ImportSSLCertificate"
+        method: POST
+        user: "{{ item.0.username }}"
+        password: "{{ item.0.password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 201, 204, 405, 500]
+        body_format: json
+        body:
+          CertificateType: "CA"
+          SSLCertificateFile: "{{ item.1 }}"
+      loop: "{{ _idrac_hosts | product(_all_certificates) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+      vars:
+        _idrac_hosts: "{{ _bmc_hosts | selectattr('manager_path', 'search', 'iDRAC') | list }}"
+      when: (_bmc_hosts | selectattr('manager_path', 'search', 'iDRAC') | list | length) > 0
 
     - name: Unpause BareMetalHosts
       kubernetes.core.k8s:

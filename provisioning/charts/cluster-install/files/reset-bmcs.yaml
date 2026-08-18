@@ -6,13 +6,87 @@
   vars:
     _bmc_hosts: "{{ lookup('env', 'BMC_HOSTS') | from_json }}"
   tasks:
+    - name: Discover Redfish manager endpoint
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Managers"
+        method: GET
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+      register: _managers_discovery
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Discover Redfish system endpoint
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}/redfish/v1/Systems"
+        method: GET
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+      register: _systems_discovery
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Enrich host inventory with discovered Redfish paths
+      ansible.builtin.set_fact:
+        _bmc_hosts_discovered: "{{ (_bmc_hosts_discovered | default([])) + [_host] }}"
+      vars:
+        _host: >-
+          {{ _bmc_hosts[idx] | combine({
+            'manager_path': _managers_discovery.results[idx].json.Members[0]['@odata.id'],
+            'system_path': _systems_discovery.results[idx].json.Members[0]['@odata.id']
+          }) }}
+      loop: "{{ range(_bmc_hosts | length) | list }}"
+      loop_control:
+        loop_var: idx
+        label: "{{ _bmc_hosts[idx].name }}"
+
+    - name: Update host inventory with discovered paths
+      ansible.builtin.set_fact:
+        _bmc_hosts: "{{ _bmc_hosts_discovered }}"
+
+    - name: Discover virtual media collection
+      ansible.builtin.uri:
+        url: "https://{{ item.address }}{{ item.manager_path }}/VirtualMedia"
+        method: GET
+        user: "{{ item.username }}"
+        password: "{{ item.password }}"
+        force_basic_auth: true
+        validate_certs: false
+      register: _vmedia_discovery
+      loop: "{{ _bmc_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Enrich host inventory with virtual media members
+      ansible.builtin.set_fact:
+        _bmc_hosts_vmedia: "{{ (_bmc_hosts_vmedia | default([])) + [_host] }}"
+      vars:
+        _host: >-
+          {{ _bmc_hosts[idx] | combine({
+            'vmedia_members': _vmedia_discovery.results[idx].json.Members
+          }) }}
+      loop: "{{ range(_bmc_hosts | length) | list }}"
+      loop_control:
+        loop_var: idx
+        label: "{{ _bmc_hosts[idx].name }}"
+
+    - name: Update host inventory with virtual media members
+      ansible.builtin.set_fact:
+        _bmc_hosts: "{{ _bmc_hosts_vmedia }}"
+
     - name: Check if BMC reboot is enabled
       ansible.builtin.set_fact:
         _reboot_bmcs: "{{ lookup('env', 'REBOOT_BMCS') | default('false', true) }}"
 
     - name: Reboot BMCs
       ansible.builtin.uri:
-        url: "https://{{ item.address }}/redfish/v1/Managers/bmc/Actions/Manager.Reset"
+        url: "https://{{ item.address }}{{ item.manager_path }}/Actions/Manager.Reset"
         method: POST
         user: "{{ item.username }}"
         password: "{{ item.password }}"
@@ -29,7 +103,7 @@
 
     - name: Wait for BMCs to come back online
       ansible.builtin.uri:
-        url: "https://{{ item.address }}/redfish/v1/Managers/bmc"
+        url: "https://{{ item.address }}{{ item.manager_path }}"
         method: GET
         user: "{{ item.username }}"
         password: "{{ item.password }}"
@@ -45,9 +119,9 @@
         label: "{{ item.name }}"
       when: _reboot_bmcs | bool
 
-    - name: Eject any stale virtual media
+    - name: Eject all virtual media
       ansible.builtin.uri:
-        url: "https://{{ item.0.address }}/redfish/v1/Managers/bmc/VirtualMedia/{{ item.1 }}/Actions/VirtualMedia.EjectMedia"
+        url: "https://{{ item.0.address }}{{ item.1['@odata.id'] }}/Actions/VirtualMedia.EjectMedia"
         method: POST
         user: "{{ item.0.username }}"
         password: "{{ item.0.password }}"
@@ -56,13 +130,13 @@
         status_code: [200, 204, 400, 500]
         body_format: json
         body: {}
-      loop: "{{ _bmc_hosts | product(['Slot_API', 'Slot_0']) | list }}"
+      loop: "{{ _bmc_hosts | subelements('vmedia_members') }}"
       loop_control:
-        label: "{{ item.0.name }} - {{ item.1 }}"
+        label: "{{ item.0.name }} - {{ item.1['@odata.id'].split('/')[-1] }}"
 
     - name: Clear boot override
       ansible.builtin.uri:
-        url: "https://{{ item.address }}/redfish/v1/Systems/system"
+        url: "https://{{ item.address }}{{ item.system_path }}"
         method: PATCH
         user: "{{ item.username }}"
         password: "{{ item.password }}"
