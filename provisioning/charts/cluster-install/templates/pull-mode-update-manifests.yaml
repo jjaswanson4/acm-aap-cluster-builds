@@ -192,12 +192,17 @@ spec:
                 if [[ " $existing_refs " =~ " $import_configmap_name " ]]; then
                   echo "$aci already references $import_configmap_name, skipping patch"
                 else
-                  # Build manifestsConfigMapRefs array using oc patch with json-patch
-                  # Get current array and append new item
-                  oc patch "$aci" -n {{ .Values.namespace }} --type=json -p '[
-                    {"op": "add", "path": "/spec/manifestsConfigMapRefs/-", "value": {"name": "'$import_configmap_name'"}},
-                    {"op": "replace", "path": "/spec/holdInstallation", "value": false}
-                  ]'
+                  if [ -n "$existing_refs" ]; then
+                    oc patch "$aci" -n {{ .Values.namespace }} --type=json -p '[
+                      {"op": "add", "path": "/spec/manifestsConfigMapRefs/-", "value": {"name": "'$import_configmap_name'"}},
+                      {"op": "replace", "path": "/spec/holdInstallation", "value": false}
+                    ]'
+                  else
+                    oc patch "$aci" -n {{ .Values.namespace }} --type=json -p '[
+                      {"op": "add", "path": "/spec/manifestsConfigMapRefs", "value": [{"name": "'$import_configmap_name'"}]},
+                      {"op": "replace", "path": "/spec/holdInstallation", "value": false}
+                    ]'
+                  fi
                   echo "Successfully patched $aci to include $import_configmap_name and released holdInstallation"
                   echo "manifestsConfigMapRefs now includes: $(oc get "$aci" -n {{ .Values.namespace }} -ojsonpath='{.spec.manifestsConfigMapRefs[*].name}')"
                 fi

@@ -31,6 +31,10 @@ spec:
   bootMode: {{ .bootMode | default $.Values.baremetalHostBootMode | default "UEFI" }}
   online: {{ $.Values.baremetalHostOnline | default true }}
   rootDeviceHints:
+{{- if .rootDeviceWWN }}
     wwn: {{ .rootDeviceWWN }}
+{{- else if .rootDeviceByPath }}
+    deviceName: {{ .rootDeviceByPath }}
+{{- end }}
 {{- end }}
 {{- end }}

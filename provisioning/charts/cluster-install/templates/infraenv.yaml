@@ -11,10 +11,12 @@ spec:
   pullSecretRef:
     name: pull-secret
   sshAuthorizedKey: {{ .Values.sshPublicKey | quote }}
+{{- if .Values.infraEnv.kernelArguments }}
   kernelArguments:
 {{- range .Values.infraEnv.kernelArguments }}
       - operation: {{ .operation }}
         value: {{ .value | quote }}
+{{- end }}
 {{- end }}
 {{- if .Values.infraEnv.additionalNTPSources }}
   additionalNTPSources:

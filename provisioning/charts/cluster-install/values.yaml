@@ -223,9 +223,7 @@ agentClusterInstall:
 # InfraEnv Configuration
 # Controls the discovery ISO and agent boot settings
 infraEnv:
-  kernelArguments:
-    - operation: append
-      value: "console=ttyS0,115200n8"
+  kernelArguments: []
 
   # Additional NTP Sources
   # NTP server hostnames or IPs to configure on cluster nodes via chrony.
@@ -236,59 +234,7 @@ infraEnv:
   #     - "192.168.107.1"
   #     - "0.rhel.pool.ntp.org"
 
-clusterManifests:
-  99-master-kargs.yaml: |
-    apiVersion: machineconfiguration.openshift.io/v1
-    kind: MachineConfig
-    metadata:
-      labels:
-        machineconfiguration.openshift.io/role: "master"
-      name: 99-master-kargs
-    spec:
-      kernelArguments:
-        - console=ttyS0,115200n8
-
-  99-wipe-secondary-disks-by-wwn.yaml: |
-    apiVersion: machineconfiguration.openshift.io/v1
-    kind: MachineConfig
-    metadata:
-      labels:
-        machineconfiguration.openshift.io/role: master
-      name: 99-wipe-secondary-disks-by-wwn
-    spec:
-      config:
-        ignition:
-          version: 3.4.0
-        systemd:
-          units:
-            - contents: |
-                [Unit]
-                Description=Wipe Secondary Drive by WWN
-                Before=kubelet.service
-                ConditionFirstBoot=yes
-
-                [Service]
-                Type=oneshot
-                RemainAfterExit=yes
-                # The script dynamically searches for the WWNs and wipes the one it finds locally
-                ExecStart=/bin/bash -c '\
-                  TARGETS=(\
-                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73ce5" \
-                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73d25" \
-                    "/dev/disk/by-id/nvme-eui.00000000000000000026b7686cb73f35" \
-                  ); \
-                  for dev in "$${TARGETS[@]}"; do \
-                    if [ -b "$$dev" ]; then \
-                      echo "Found matching secondary drive at $$dev, executing wipe..."; \
-                      sgdisk --zap-all "$$dev"; \
-                      wipefs -a "$$dev"; \
-                    fi; \
-                  done'
-
-                [Install]
-                WantedBy=multi-user.target
-              enabled: true
-              name: wipe-secondary-disk.service
+clusterManifests: {}
 
 nodes:
   - name: snuc0

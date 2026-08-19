@@ -122,7 +122,7 @@
         password: "{{ item.0.password }}"
         force_basic_auth: true
         validate_certs: false
-        status_code: [200, 201, 204, 405, 500]
+        status_code: [200, 201, 204, 400, 405, 500]
         body_format: json
         body:
           CertificateType: "CA"
