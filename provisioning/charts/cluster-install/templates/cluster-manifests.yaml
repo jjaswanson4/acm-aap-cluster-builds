@@ -6,6 +6,10 @@ kind: ConfigMap
 metadata:
   name: cluster-manifests
   namespace: {{ .Values.namespace }}
+{{- if .Values.commonLabels }}
+  labels:
+    {{- include "cluster.commonLabels" . | nindent 4 }}
+{{- end }}
   annotations:
     "argocd.argoproj.io/sync-wave": "-2"
 data:

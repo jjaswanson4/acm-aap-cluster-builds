@@ -140,6 +140,18 @@ addons:
 #     region: us-east
 managedClusterLabels: {}
 
+# Common Labels
+# Custom labels applied to all core resources created by this chart
+# (Namespace, ClusterDeployment, AgentClusterInstall, InfraEnv,
+#  BareMetalHosts, NMStateConfigs, ManagedCluster, Secrets)
+# Useful for documentation, cost tracking, or organization
+# Example:
+#   commonLabels:
+#     environment: production
+#     hardware: dell-xr4510c
+#     site: houston-lab
+commonLabels: {}
+
 # ClusterCurator - Optional AAP (Ansible Automation Platform) Integration
 # Enables pre-installation automation via AAP job templates
 # When enabled, BMHs are created paused and a Job runs an Ansible playbook to:

@@ -6,6 +6,10 @@ kind: BareMetalHost
 metadata:
   name: {{ .name }}
   namespace: {{ $.Values.namespace }}
+{{- if $.Values.commonLabels }}
+  labels:
+    {{- include "cluster.commonLabels" $ | nindent 4 }}
+{{- end }}
   annotations:
 {{- if ne ($.Values.baremetalHostInspectionEnabled | default "false") "true" }}
     inspect.metal3.io: disabled

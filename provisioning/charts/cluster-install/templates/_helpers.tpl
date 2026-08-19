@@ -38,7 +38,21 @@ helm.sh/chart: {{ include "cluster.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- include "cluster.commonLabels" . }}
 {{- end }}
+
+{{/*
+User-defined common labels applied to all core resources
+*/}}
+{{- define "cluster.commonLabels" -}}
+{{- $first := true -}}
+{{- range $key, $value := .Values.commonLabels -}}
+{{- if not $first }}
+{{ end -}}
+{{- $first = false -}}
+{{ $key }}: {{ $value | quote }}
+{{- end -}}
+{{- end -}}
 
 {{/*
 Selector labels

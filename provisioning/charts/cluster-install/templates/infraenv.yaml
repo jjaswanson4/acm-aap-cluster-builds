@@ -4,6 +4,10 @@ kind: InfraEnv
 metadata:
   name: {{ .Values.clusterName }}
   namespace: {{ .Values.namespace }}
+{{- if .Values.commonLabels }}
+  labels:
+    {{- include "cluster.commonLabels" . | nindent 4 }}
+{{- end }}
 spec:
   clusterRef:
     name: {{ .Values.clusterName }}

@@ -4,7 +4,7 @@ kind: ClusterDeployment
 metadata:
   name: {{ .Values.clusterName }}
   namespace: {{ .Values.namespace }}
-{{- if or .Values.clusterSet .Values.managedClusterLabels }}
+{{- if or .Values.clusterSet .Values.managedClusterLabels .Values.commonLabels }}
   labels:
 {{- if .Values.clusterSet }}
     cluster.open-cluster-management.io/clusterset: {{ .Values.clusterSet }}
@@ -12,6 +12,7 @@ metadata:
 {{- range $key, $value := .Values.managedClusterLabels }}
     {{ $key }}: {{ $value | quote }}
 {{- end }}
+    {{- include "cluster.commonLabels" . | nindent 4 }}
 {{- end }}
 spec:
   baseDomain: {{ .Values.baseDomain }}
