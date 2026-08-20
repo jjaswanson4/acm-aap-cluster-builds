@@ -61,7 +61,7 @@ spec:
 {{- if or (eq .Values.registrationMode "pull") (and .Values.argocdAgent (eq (.Values.argocdAgent.enabled | default "false" | toString) "true")) }}
   holdInstallation: true
 {{- end }}
-{{- if and .Values.clusterManifests (gt (len .Values.clusterManifests) 0) }}
+{{- if or (and .Values.clusterManifests (gt (len .Values.clusterManifests) 0)) .Values.agentClusterInstall.networking.clusterNetworkMTU }}
   manifestsConfigMapRefs:
     - name: cluster-manifests
 {{- end }}

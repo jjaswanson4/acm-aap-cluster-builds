@@ -97,6 +97,11 @@ agentClusterInstall:
         hostPrefix: 23
     serviceNetwork:
       - 172.30.0.0/16
+    # OVN overlay MTU (optional)
+    # Only needed if you want a non-default overlay MTU.
+    # Default is (interface MTU - 100) for Geneve overhead.
+    # Example: with interface MTU 9000, set to 8900.
+    # clusterNetworkMTU: 8900
 
   # Cluster sizing
   provisionRequirements:

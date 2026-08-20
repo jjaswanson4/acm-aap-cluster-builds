@@ -1,5 +1,6 @@
-{{- if .Values.clusterManifests }}
-{{- if gt (len .Values.clusterManifests) 0 }}
+{{- $hasManifests := and .Values.clusterManifests (gt (len .Values.clusterManifests) 0) }}
+{{- $hasMTU := .Values.agentClusterInstall.networking.clusterNetworkMTU }}
+{{- if or $hasManifests $hasMTU }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -17,5 +18,15 @@ data:
   {{ $filename }}: |
 {{ $content | indent 4 }}
 {{- end }}
+{{- if $hasMTU }}
+  99-cluster-network-mtu.yaml: |
+    apiVersion: operator.openshift.io/v1
+    kind: Network
+    metadata:
+      name: cluster
+    spec:
+      defaultNetwork:
+        ovnKubernetesConfig:
+          mtu: {{ .Values.agentClusterInstall.networking.clusterNetworkMTU }}
 {{- end }}
 {{- end }}
