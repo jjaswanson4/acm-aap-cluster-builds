@@ -38,10 +38,16 @@ registrationMode: "push"
 
 # ACM ClusterSet
 # Optional: Assign the cluster to a ManagedClusterSet for grouping and RBAC
-# When specified, creates the ClusterSet if it doesn't exist and binds this cluster to it
+# When specified, creates the ClusterSet (unless createClusterSet is "false") and binds this cluster to it
 # Leave empty to not use ClusterSets
 # clusterSet: "production"
 clusterSet: ""
+
+# Create ClusterSet
+# true  = Create the ManagedClusterSet if clusterSet is specified (default)
+# false = Skip ManagedClusterSet creation, only create the ManagedClusterSetBinding
+#         Use when the ManagedClusterSet is managed externally (e.g. Autoshift)
+# createClusterSet: "true"
 
 # ACM Add-ons
 # Configure which ACM add-ons to install on the managed cluster
@@ -168,7 +174,9 @@ nodes:
     bootMACAddress: "aa:bb:cc:dd:ee:01"
     hostname: "master-0.my-cluster.example.com"
     role: "master"
+    # Root device hint — use ONE of rootDeviceWWN or rootDeviceByPath:
     rootDeviceWWN: "eui.YOUR_ROOT_DISK_WWN_1"
+    # rootDeviceByPath: "/dev/disk/by-path/pci-0000:03:00.0-scsi-0:2:0:0"
     network:
       interface: eno1
       macAddress: "aa:bb:cc:dd:ee:01"

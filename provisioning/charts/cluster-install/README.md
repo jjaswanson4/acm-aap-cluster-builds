@@ -136,6 +136,10 @@ flowchart TD
 helm install my-cluster ./provisioning/charts/cluster -f my-values.yaml
 ```
 
+### ArgoCD Deployment
+
+The chart supports deployment via ArgoCD with `selfHeal: true`. Set `deployMethod: "argocd"` in your values and include `RespectIgnoreDifferences=true` in your Application's syncOptions. See [ARGOCD.md](ARGOCD.md) for the full deployment guide, recommended sync policy, and required `ignoreDifferences` configuration.
+
 ### ISO URL Display
 
 The chart includes a **post-install hook** that waits for the InfraEnv ISO URL to be generated and displays it during installation. This means `helm install` will:
@@ -189,6 +193,10 @@ The chart creates resources in the following order (Helm's default alphabetical 
     - Configures agents with node-specific settings
     - Provides more control over the registration process
     - Useful for environments with strict network policies or air-gapped scenarios
+- `clusterSet`: Assigns the cluster to a ManagedClusterSet for grouping and RBAC
+- `createClusterSet`: Controls whether the chart creates the ManagedClusterSet resource
+  - `"true"` (default): Creates the ManagedClusterSet if `clusterSet` is specified
+  - `"false"`: Skips ManagedClusterSet creation, only creates the ManagedClusterSetBinding. Use when the set is managed externally (e.g. by Autoshift)
 
 ### Network Configuration
 - `agentClusterInstall.apiVIP`: Virtual IP for API server
@@ -198,12 +206,13 @@ The chart creates resources in the following order (Helm's default alphabetical 
 ### Node Configuration
 Each node in the `nodes` array requires:
 - `name`: Node identifier
-- `bmcAddress`: Redfish/IPMI address for BMC
+- `bmcAddress`: Redfish BMC address (e.g., `redfish-virtualmedia+https://...` for OpenBMC, `idrac-virtualmedia+https://...` for Dell iDRAC)
 - `bmcCredentials`: Username and password for BMC access
 - `bootMACAddress`: MAC address for PXE boot
 - `hostname`: FQDN of the node
 - `role`: Node role (typically "master")
-- `rootDeviceWWN`: WWN of the root disk
+- `rootDeviceWWN`: WWN of the root disk (use this OR `rootDeviceByPath`)
+- `rootDeviceByPath`: Device path hint (e.g., `/dev/disk/by-path/pci-0000:03:00.0-scsi-0:2:0:0`)
 - `network`: Network configuration (IP, gateway, DNS)
 
 ### Cluster Manifests

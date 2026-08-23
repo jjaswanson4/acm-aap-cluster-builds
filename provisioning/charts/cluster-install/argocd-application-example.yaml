@@ -69,15 +69,18 @@ spec:
 
   # Ignore differences in specific fields
   ignoreDifferences:
-    # Ignore status fields that are managed by operators
+    # Ignore status fields managed by operators
     - group: agent-install.openshift.io
       kind: InfraEnv
       jsonPointers:
         - /status
-    - group: agent-install.openshift.io
+    - group: extensions.hive.openshift.io
       kind: AgentClusterInstall
       jsonPointers:
         - /status
+        # Job-patched fields (required for selfHeal: true)
+        - /spec/holdInstallation
+        - /spec/manifestsConfigMapRefs
     - group: hive.openshift.io
       kind: ClusterDeployment
       jsonPointers:
@@ -87,6 +90,16 @@ spec:
       jsonPointers:
         - /status
         - /metadata/annotations/baremetalhost.metal3.io~1status
+        # Job-patched fields (required for selfHeal: true)
+        - /spec/image
+      jqPathExpressions:
+        - .metadata.annotations["baremetalhost.metal3.io/paused"]
+    # ManagedCluster labels/annotations added by ACM and policy frameworks
+    - group: cluster.open-cluster-management.io
+      kind: ManagedCluster
+      jsonPointers:
+        - /metadata/labels
+        - /metadata/annotations
 
 ---
 # Alternative: Using Helm repository instead of Git

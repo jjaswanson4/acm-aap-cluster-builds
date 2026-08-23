@@ -193,6 +193,8 @@ syncPolicy:
 
 ## Ignore Differences
 
+### Status fields
+
 Add these to prevent ArgoCD from detecting false drift on operator-managed status fields:
 
 ```yaml
@@ -201,7 +203,7 @@ ignoreDifferences:
     kind: InfraEnv
     jsonPointers:
       - /status
-  - group: agent-install.openshift.io
+  - group: extensions.hive.openshift.io
     kind: AgentClusterInstall
     jsonPointers:
       - /status
@@ -215,6 +217,70 @@ ignoreDifferences:
       - /status
       - /metadata/annotations/baremetalhost.metal3.io~1status
 ```
+
+### Job-patched fields (required for selfHeal: true)
+
+The chart uses sync-wave Jobs to imperatively patch fields on resources that ArgoCD manages. Without ignoring these fields, `selfHeal: true` reverts the patches and blocks cluster installation.
+
+| Resource | Field | Patched by | Purpose |
+|----------|-------|-----------|---------|
+| AgentClusterInstall | `holdInstallation` | update-manifests / argocd-agent (wave 5) | Released to `false` to start installation after prerequisites are ready |
+| AgentClusterInstall | `manifestsConfigMapRefs` | update-manifests / argocd-agent (wave 5) | Import manifests added for pull-mode or ArgoCD agent registration |
+| BareMetalHost | `spec.image` | patch-bmh-image (wave 2) | Discovery ISO URL set after InfraEnv generates it |
+| BareMetalHost | `baremetalhost.metal3.io/paused` | configure-bmcs (wave 1) | Removed to unpause hosts after BMC TLS certs are deployed |
+
+The chart includes `argocd.argoproj.io/ignore-differences` annotations directly on the AgentClusterInstall and BareMetalHost resources, so ArgoCD ignores these fields automatically. This requires `RespectIgnoreDifferences=true` in your Application's syncOptions (included in the recommended sync policy above).
+
+As a fallback, or for ArgoCD versions that do not support resource-level ignore annotations, add these to your Application spec alongside the status entries above:
+
+```yaml
+ignoreDifferences:
+  - group: extensions.hive.openshift.io
+    kind: AgentClusterInstall
+    jsonPointers:
+      - /spec/holdInstallation
+      - /spec/manifestsConfigMapRefs
+  - group: metal3.io
+    kind: BareMetalHost
+    jsonPointers:
+      - /spec/image
+    jqPathExpressions:
+      - .metadata.annotations["baremetalhost.metal3.io/paused"]
+```
+
+### ManagedCluster labels and annotations
+
+ACM and policy frameworks (e.g. Autoshift) add labels and annotations to the ManagedCluster resource at runtime. The chart includes an `argocd.argoproj.io/ignore-differences` annotation on the ManagedCluster to ignore these fields automatically.
+
+As a fallback, add this to your Application spec:
+
+```yaml
+ignoreDifferences:
+  - group: cluster.open-cluster-management.io
+    kind: ManagedCluster
+    jsonPointers:
+      - /metadata/labels
+      - /metadata/annotations
+```
+
+### ManagedClusterSet and `createClusterSet`
+
+The chart can create a ManagedClusterSet when `clusterSet` is specified. By default (`createClusterSet: "true"`), the chart renders the ManagedClusterSet resource. Set `createClusterSet: "false"` to skip creation and only render the ManagedClusterSetBinding.
+
+This is important for ArgoCD because:
+- The previous `lookup`-based approach (skip creation if the set already exists) does not work reliably with ArgoCD — ArgoCD renders templates without cluster API access, so `lookup` always returns empty
+- If another system (e.g. Autoshift) already manages the ManagedClusterSet, ArgoCD will show the resource as OutOfSync due to the ownership conflict
+
+### Using with Autoshift
+
+When deploying clusters alongside [Autoshift](https://github.com/jjaswanson4/autoshiftv2), Autoshift manages ManagedClusterSets through its policy framework. Set `createClusterSet: "false"` to avoid conflicts:
+
+```yaml
+clusterSet: "ath-hyperconverged"
+createClusterSet: "false"
+```
+
+Ensure the ManagedClusterSet exists in Autoshift before deploying the cluster chart. The chart will create only the ManagedClusterSetBinding to join the cluster to the existing set.
 
 ## Differences from Helm Install
 
