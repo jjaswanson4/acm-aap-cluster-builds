@@ -11,6 +11,11 @@ metadata:
     {{- include "cluster.commonLabels" $ | nindent 4 }}
 {{- end }}
   annotations:
+    argocd.argoproj.io/ignore-differences: |
+      jsonPointers:
+        - /spec/image
+      jqPathExpressions:
+        - .metadata.annotations["baremetalhost.metal3.io/paused"]
 {{- if ne ($.Values.baremetalHostInspectionEnabled | default "false") "true" }}
     inspect.metal3.io: disabled
 {{- end }}

@@ -9,6 +9,10 @@ metadata:
     {{- include "cluster.commonLabels" . | nindent 4 }}
 {{- end }}
   annotations:
+    argocd.argoproj.io/ignore-differences: |
+      jsonPointers:
+        - /spec/holdInstallation
+        - /spec/manifestsConfigMapRefs
     agent-install.openshift.io/install-config-overrides: |
       {
         "cpuPartitioningMode": {{ .Values.agentClusterInstall.installConfigOverrides.cpuPartitioningMode | quote }},
