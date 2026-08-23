@@ -1,6 +1,5 @@
 {{- if .Values.clusterSet }}
-{{- $existingClusterSet := (lookup "cluster.open-cluster-management.io/v1beta2" "ManagedClusterSet" "" .Values.clusterSet) }}
-{{- if not $existingClusterSet }}
+{{- if ne (.Values.createClusterSet | default "true" | toString) "false" }}
 ---
 apiVersion: cluster.open-cluster-management.io/v1beta2
 kind: ManagedClusterSet
