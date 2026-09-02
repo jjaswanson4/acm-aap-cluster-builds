@@ -81,10 +81,11 @@ spec:
                 for host in "${hosts[@]}"; do
                   # Pull the config for this host to get the MAC address
                   host_config="$(oc get configmap -n "$cluster_name" node-configs -ogo-template='{{`{{ index .data "`}}'"$host"'{{`" }}`}}')"
-                  boot_mac="$(echo "$host_config" | grep -o '"bootMACAddress":\s*"[^"]*"' | cut -d'"' -f4)"
+                  boot_mac="$(echo "$host_config" | grep -o '"bootMACAddress":\s*"[^"]*"' | cut -d'"' -f4 | tr '[:upper:]' '[:lower:]')"
 
                   # Identify if an agent has been created for this host
                   # Match by hostname OR by MAC address (more reliable for single-node clusters)
+                  # Agent inventory reports MACs in lowercase, so boot_mac is lowercased above
                   agent="$(oc get agent -ogo-template='{{`{{ range .items }}{{ $mac := "" }}{{ range .status.inventory.interfaces }}{{ if .macAddress }}{{ if eq .macAddress "`}}'"$boot_mac"'{{`" }}{{ $mac = "match" }}{{ end }}{{ end }}{{ end }}{{ if or (eq .status.inventory.hostname "`}}'"$host"'{{`") (eq .spec.hostname "`}}'"$host"'{{`") (eq $mac "match") }}{{ .metadata.name }}{{ end }}{{ end }}`}}')"
 
                   # If an agent has been created and we haven't already patched it
